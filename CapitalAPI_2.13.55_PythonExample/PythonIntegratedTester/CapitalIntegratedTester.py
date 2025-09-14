@@ -829,51 +829,81 @@ class CapitalIntegratedTester:
                 
     def safe_messagebox_info(self, title, message):
         """線程安全的 messagebox.showinfo"""
+        # 直接添加到訊息列表，避免所有 GIL 相關問題
+        self.add_method_message(f"【訊息】{title}: {message}")
+        
+        # 嘗試使用 after_idle 來確保在主執行緒中執行
         def _show_info():
             try:
-                messagebox.showinfo(title, message)
+                # 檢查是否在主執行緒中
+                import threading
+                if threading.current_thread() == threading.main_thread():
+                    messagebox.showinfo(title, message)
+                else:
+                    # 如果不在主執行緒，只添加訊息不顯示對話框
+                    pass
             except Exception:
-                # 如果 messagebox 失敗，將訊息添加到方法訊息中
-                self.add_method_message(f"【訊息】{title}: {message}")
+                # 任何錯誤都忽略，因為訊息已經添加到列表中
+                pass
                 
-        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
         try:
-            self.root.after(0, _show_info)
+            # 使用 after_idle 而不是 after，確保在空閒時執行
+            self.root.after_idle(_show_info)
         except Exception:
-            # 如果 after 也失敗，直接添加訊息
-            self.add_method_message(f"【訊息】{title}: {message}")
+            # 如果失敗，訊息已經添加到列表中，不需要額外處理
+            pass
             
     def safe_messagebox_error(self, title, message):
         """線程安全的 messagebox.showerror"""
+        # 直接添加到訊息列表，避免所有 GIL 相關問題
+        self.add_method_message(f"【錯誤】{title}: {message}")
+        
+        # 嘗試使用 after_idle 來確保在主執行緒中執行
         def _show_error():
             try:
-                messagebox.showerror(title, message)
+                # 檢查是否在主執行緒中
+                import threading
+                if threading.current_thread() == threading.main_thread():
+                    messagebox.showerror(title, message)
+                else:
+                    # 如果不在主執行緒，只添加訊息不顯示對話框
+                    pass
             except Exception:
-                # 如果 messagebox 失敗，將錯誤添加到方法訊息中
-                self.add_method_message(f"【錯誤】{title}: {message}")
+                # 任何錯誤都忽略，因為訊息已經添加到列表中
+                pass
                 
-        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
         try:
-            self.root.after(0, _show_error)
+            # 使用 after_idle 而不是 after，確保在空閒時執行
+            self.root.after_idle(_show_error)
         except Exception:
-            # 如果 after 也失敗，直接添加訊息
-            self.add_method_message(f"【錯誤】{title}: {message}")
+            # 如果失敗，訊息已經添加到列表中，不需要額外處理
+            pass
             
     def safe_messagebox_warning(self, title, message):
         """線程安全的 messagebox.showwarning"""
+        # 直接添加到訊息列表，避免所有 GIL 相關問題
+        self.add_method_message(f"【警告】{title}: {message}")
+        
+        # 嘗試使用 after_idle 來確保在主執行緒中執行
         def _show_warning():
             try:
-                messagebox.showwarning(title, message)
+                # 檢查是否在主執行緒中
+                import threading
+                if threading.current_thread() == threading.main_thread():
+                    messagebox.showwarning(title, message)
+                else:
+                    # 如果不在主執行緒，只添加訊息不顯示對話框
+                    pass
             except Exception:
-                # 如果 messagebox 失敗，將警告添加到方法訊息中
-                self.add_method_message(f"【警告】{title}: {message}")
+                # 任何錯誤都忽略，因為訊息已經添加到列表中
+                pass
                 
-        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
         try:
-            self.root.after(0, _show_warning)
+            # 使用 after_idle 而不是 after，確保在空閒時執行
+            self.root.after_idle(_show_warning)
         except Exception:
-            # 如果 after 也失敗，直接添加訊息
-            self.add_method_message(f"【警告】{title}: {message}")
+            # 如果失敗，訊息已經添加到列表中，不需要額外處理
+            pass
     
     def get_api_version(self):
         """取得 API 版本"""
