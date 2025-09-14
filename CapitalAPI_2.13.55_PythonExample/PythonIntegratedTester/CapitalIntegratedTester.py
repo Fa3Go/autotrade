@@ -6,6 +6,7 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter import messagebox, filedialog
 import comtypes.client
+import threading
 import Config
 
 # 初始化 COM 元件
@@ -107,7 +108,7 @@ class CapitalIntegratedTester:
         toolbar_frame.pack(fill='x', side='top')
         
         # API 版本顯示
-        version_label = tk.Label(toolbar_frame, text=f"API版本: {self.get_api_version()}", 
+        version_label = tk.Label(toolbar_frame, text=f"API 版本: {self.get_api_version()}", 
                                 bg='#e0e0e0', font=('Arial', 9))
         version_label.pack(side='left', padx=10, pady=5)
         
@@ -118,6 +119,9 @@ class CapitalIntegratedTester:
         
         status_text = tk.Label(toolbar_frame, text="連線狀態:", bg='#e0e0e0')
         status_text.pack(side='right', pady=5)
+        
+        # 初始化連線狀態為紅色
+        self.update_connection_status('red')
         
     def create_login_tab(self):
         """建立登入分頁"""
@@ -439,6 +443,7 @@ class CapitalIntegratedTester:
         btn_frame.grid(row=0, column=2, columnspan=2, padx=10)
         
         tk.Button(btn_frame, text="連線報價", command=self.connect_quote, bg='#4CAF50', fg='white').pack(side='left', padx=5)
+        tk.Button(btn_frame, text="斷線報價", command=self.disconnect_quote, bg='#f44336', fg='white').pack(side='left', padx=5)
         tk.Button(btn_frame, text="訂閱報價", command=self.subscribe_quote).pack(side='left', padx=5)
         tk.Button(btn_frame, text="取消訂閱", command=self.unsubscribe_quote).pack(side='left', padx=5)
         tk.Button(btn_frame, text="訂閱逐筆", command=self.subscribe_tick).pack(side='left', padx=5)
@@ -622,7 +627,7 @@ class CapitalIntegratedTester:
             def OnComplete(self, bstrUserID):
                 msg = f"【OnComplete】{bstrUserID}_回報連線&資料正常"
                 self.parent.add_event_message(msg)
-                self.parent.connection_status.config(fg='green')
+                self.parent.update_connection_status('green')
                 
         self.reply_event = SKReplyLibEvent()
         self.reply_event.parent = self
@@ -671,46 +676,92 @@ class CapitalIntegratedTester:
                 msg = f"【Quote連線】{kind_msg} Code:{nCode}"
                 self.parent.add_event_message(msg)
                 
-                # 更新連線狀態
+                # 更新連線狀態 - 線程安全
                 if nKind == 3003 and nCode == 0:  # 登入成功
-                    self.parent.connection_status.config(fg='green')
+                    self.parent.update_connection_status('green')
                 elif nKind == 3021:  # 登出
-                    self.parent.connection_status.config(fg='red')
+                    self.parent.update_connection_status('red')
                     
             def OnNotifyQuote(self, sStockidx, sPtr):
-                # 處理即時報價更新
-                self.parent.process_quote_data(sStockidx, sPtr)
+                # 處理即時報價更新 - 增強錯誤防護
+                try:
+                    # 參數有效性檢查
+                    if sStockidx is None:
+                        self.parent.add_event_message("【OnNotifyQuote】股票索引為 None，跳過處理")
+                        return
+                        
+                    # 安全調用報價處理方法
+                    self.parent.process_quote_data(sStockidx, sPtr)
+                    
+                except Exception as e:
+                    # 即使報價處理失敗，也不能讓整個事件系統崩潰
+                    msg = f"【OnNotifyQuote事件錯誤】索引:{sStockidx}, 錯誤:{str(e)}"
+                    try:
+                        self.parent.add_event_message(msg)
+                    except:
+                        # 如果連訊息顯示都失敗，至少不要讓程式崩潰
+                        pass
                 
             def OnNotifyHistoryTicks(self, sStockidx, nPtr, lDate, lTimehms, nBidAskFlag, nClose, nQty):
-                # 處理歷史逐筆資料
-                msg = f"【歷史逐筆】代號:{sStockidx} 時間:{lTimehms} 價格:{nClose} 量:{nQty}"
-                self.parent.add_event_message(msg)
+                # 處理歷史逐筆資料 - 增強錯誤防護
+                try:
+                    msg = f"【歷史逐筆】代號:{sStockidx} 時間:{lTimehms} 價格:{nClose} 量:{nQty}"
+                    self.parent.add_event_message(msg)
+                except Exception as e:
+                    try:
+                        self.parent.add_event_message(f"【歷史逐筆事件錯誤】{str(e)}")
+                    except:
+                        pass
                 
             def OnNotifyTicks(self, sStockidx, nPtr, lDate, lTimehms, nBidAskFlag, nClose, nQty):
-                # 處理即時逐筆資料
-                msg = f"【即時逐筆】代號:{sStockidx} 時間:{lTimehms} 價格:{nClose} 量:{nQty}"
-                self.parent.add_event_message(msg)
+                # 處理即時逐筆資料 - 增強錯誤防護
+                try:
+                    msg = f"【即時逐筆】代號:{sStockidx} 時間:{lTimehms} 價格:{nClose} 量:{nQty}"
+                    self.parent.add_event_message(msg)
+                except Exception as e:
+                    try:
+                        self.parent.add_event_message(f"【即時逐筆事件錯誤】{str(e)}")
+                    except:
+                        pass
                 
             def OnNotifyBest5(self, sStockidx, nPtr, nBestBid1, nBestBidQty1, nBestBid2, nBestBidQty2, nBestBid3, nBestBidQty3, nBestBid4, nBestBidQty4, nBestBid5, nBestBidQty5, nBestAsk1, nBestAskQty1, nBestAsk2, nBestAskQty2, nBestAsk3, nBestAskQty3, nBestAsk4, nBestAskQty4, nBestAsk5, nBestAskQty5):
-                # 處理最佳五檔資料
-                msg = f"【最佳五檔】代號:{sStockidx} 買1:{nBestBid1}({nBestBidQty1}) 賣1:{nBestAsk1}({nBestAskQty1})"
-                self.parent.add_event_message(msg)
+                # 處理最佳五檔資料 - 增強錯誤防護
+                try:
+                    msg = f"【最佳五檔】代號:{sStockidx} 買1:{nBestBid1}({nBestBidQty1}) 賣1:{nBestAsk1}({nBestAskQty1})"
+                    self.parent.add_event_message(msg)
+                except Exception as e:
+                    try:
+                        self.parent.add_event_message(f"【最佳五檔事件錯誤】{str(e)}")
+                    except:
+                        pass
                 
             def OnNotifyMarketTot(self, sMarketNo, sPtr, nTime, nTotv, nTots, nTotc):
-                # 處理市場統計資料
-                if hasattr(self.parent, 'labelnTotv'):
-                    if sMarketNo == 0:  # 上市
-                        self.parent.labelnTotv.config(text=str(nTotv / 100.00))
-                        self.parent.labelnTots.config(text=str(nTots))
-                        self.parent.labelnTotc.config(text=str(nTotc))
+                # 處理市場統計資料 - 增強錯誤防護
+                try:
+                    if hasattr(self.parent, 'labelnTotv'):
+                        if sMarketNo == 0:  # 上市
+                            self.parent.labelnTotv.config(text=str(nTotv / 100.00))
+                            self.parent.labelnTots.config(text=str(nTots))
+                            self.parent.labelnTotc.config(text=str(nTotc))
+                except Exception as e:
+                    try:
+                        self.parent.add_event_message(f"【市場統計事件錯誤】{str(e)}")
+                    except:
+                        pass
                         
             def OnNotifyMarketHighLowNoWarrant(self, sMarketNo, sPtr, nTime, nUp, nDown, nHigh, nLow, nNoChange, nUpNoW, nDownNoW, nHighNoW, nLowNoW, nNoChangeNoW):
-                # 處理漲跌家數統計
-                if hasattr(self.parent, 'labelnUp'):
-                    if sMarketNo == 0:  # 上市
-                        self.parent.labelnUp.config(text=str(nUp))
-                        self.parent.labelnDown.config(text=str(nDown))
-                        self.parent.labelnNoChange.config(text=str(nNoChange))
+                # 處理漲跌家數統計 - 增強錯誤防護
+                try:
+                    if hasattr(self.parent, 'labelnUp'):
+                        if sMarketNo == 0:  # 上市
+                            self.parent.labelnUp.config(text=str(nUp))
+                            self.parent.labelnDown.config(text=str(nDown))
+                            self.parent.labelnNoChange.config(text=str(nNoChange))
+                except Exception as e:
+                    try:
+                        self.parent.add_event_message(f"【漲跌統計事件錯誤】{str(e)}")
+                    except:
+                        pass
                 
         self.quote_event = SKQuoteLibEvent()
         self.quote_event.parent = self
@@ -718,15 +769,112 @@ class CapitalIntegratedTester:
         
     # ========== 輔助方法 ==========
     def add_method_message(self, message):
-        """添加方法訊息"""
-        self.method_text.insert('end', message + "\n")
-        self.method_text.see('end')
+        """添加方法訊息 - 線程安全版本"""
+        def _update_method_text():
+            try:
+                self.method_text.insert('end', message + "\n")
+                self.method_text.see('end')
+            except Exception:
+                # 如果 GUI 已被銷毀，忽略錯誤
+                pass
+                
+        # 檢查是否在主線程
+        if threading.current_thread() == threading.main_thread():
+            _update_method_text()
+        else:
+            # 從其他線程調用時，使用 after 方法排隊到主線程
+            try:
+                self.root.after(0, _update_method_text)
+            except Exception:
+                pass
         
     def add_event_message(self, message):
-        """添加事件訊息"""
-        self.event_text.insert('end', message + "\n")
-        self.event_text.see('end')
+        """添加事件訊息 - 線程安全版本"""
+        def _update_event_text():
+            try:
+                self.event_text.insert('end', message + "\n")
+                self.event_text.see('end')
+            except Exception:
+                # 如果 GUI 已被銷毀，忽略錯誤
+                pass
+                
+        # 檢查是否在主線程
+        if threading.current_thread() == threading.main_thread():
+            _update_event_text()
+        else:
+            # 從其他線程調用時，使用 after 方法排隊到主線程
+            try:
+                self.root.after(0, _update_event_text)
+            except Exception:
+                pass
         
+    def update_connection_status(self, color):
+        """更新連線狀態指示器 - 線程安全版本"""
+        def _update_status():
+            try:
+                self.connection_status.config(fg=color)
+            except Exception:
+                # 如果 GUI 已被銷毀，忽略錯誤
+                pass
+                
+        # 檢查是否在主線程
+        if threading.current_thread() == threading.main_thread():
+            _update_status()
+        else:
+            # 從其他線程調用時，使用 after 方法排隊到主線程
+            try:
+                self.root.after(0, _update_status)
+            except Exception:
+                pass
+                
+    def safe_messagebox_info(self, title, message):
+        """線程安全的 messagebox.showinfo"""
+        def _show_info():
+            try:
+                messagebox.showinfo(title, message)
+            except Exception:
+                # 如果 messagebox 失敗，將訊息添加到方法訊息中
+                self.add_method_message(f"【訊息】{title}: {message}")
+                
+        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
+        try:
+            self.root.after(0, _show_info)
+        except Exception:
+            # 如果 after 也失敗，直接添加訊息
+            self.add_method_message(f"【訊息】{title}: {message}")
+            
+    def safe_messagebox_error(self, title, message):
+        """線程安全的 messagebox.showerror"""
+        def _show_error():
+            try:
+                messagebox.showerror(title, message)
+            except Exception:
+                # 如果 messagebox 失敗，將錯誤添加到方法訊息中
+                self.add_method_message(f"【錯誤】{title}: {message}")
+                
+        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
+        try:
+            self.root.after(0, _show_error)
+        except Exception:
+            # 如果 after 也失敗，直接添加訊息
+            self.add_method_message(f"【錯誤】{title}: {message}")
+            
+    def safe_messagebox_warning(self, title, message):
+        """線程安全的 messagebox.showwarning"""
+        def _show_warning():
+            try:
+                messagebox.showwarning(title, message)
+            except Exception:
+                # 如果 messagebox 失敗，將警告添加到方法訊息中
+                self.add_method_message(f"【警告】{title}: {message}")
+                
+        # 總是使用 after 方法來顯示 messagebox，避免 COM 後的 GIL 問題
+        try:
+            self.root.after(0, _show_warning)
+        except Exception:
+            # 如果 after 也失敗，直接添加訊息
+            self.add_method_message(f"【警告】{title}: {message}")
+    
     def get_api_version(self):
         """取得 API 版本"""
         try:
@@ -751,6 +899,11 @@ class CapitalIntegratedTester:
         # 更新 ComboBox
         self.combo_userid['values'] = list(dictUserID.keys())
         
+        # 登入成功後更新連線狀態為橙色 (已登入，但未連線報價)
+        if dictUserID:
+            self.update_connection_status('orange')
+            self.add_method_message("【登入狀態】已登入，請點擊「連線報價」建立報價連線")
+        
     def process_reply_data(self, data):
         """處理回報資料"""
         try:
@@ -773,39 +926,83 @@ class CapitalIntegratedTester:
     def process_quote_data(self, stock_idx, ptr):
         """處理報價資料"""
         try:
-            # 取得股票基本資料
-            stock_info = m_pSKQuote.SKQuoteLib_GetStockByIndex(stock_idx)
+            # 參數有效性檢查
+            if stock_idx is None or stock_idx < 0:
+                self.add_event_message(f"【報價處理警告】無效的股票索引: {stock_idx}")
+                return
+                
+            # 檢查 COM 物件是否可用
+            if not hasattr(m_pSKQuote, 'SKQuoteLib_GetStockByIndex'):
+                self.add_event_message("【報價處理錯誤】SKQuoteLib COM 物件方法不可用")
+                return
             
-            if stock_info:
-                # 解析股票資料
+            # 安全調用 COM 方法取得股票基本資料
+            try:
+                stock_info = m_pSKQuote.SKQuoteLib_GetStockByIndex(stock_idx)
+            except Exception as api_error:
+                msg = f"【報價API調用失敗】索引:{stock_idx}, 錯誤:{str(api_error)}"
+                self.add_event_message(msg)
+                return
+            
+            # 檢查返回的資料是否有效
+            if not stock_info or not isinstance(stock_info, str):
+                self.add_event_message(f"【報價資料無效】索引:{stock_idx}, 資料:{stock_info}")
+                return
+            
+            # 解析股票資料
+            try:
                 values = stock_info.split(',')
-                if len(values) >= 10:
-                    stock_no = values[0]      # 股票代號
-                    stock_name = values[1]    # 股票名稱
-                    close_price = values[2]   # 成交價
-                    change = values[3]        # 漲跌
-                    change_pct = values[4]    # 漲跌幅
-                    volume = values[5]        # 成交量
-                    bid_price = values[6]     # 買價
-                    ask_price = values[7]     # 賣價
-                    time_str = values[8]      # 時間
+                if len(values) < 9:  # 至少需要9個欄位
+                    self.add_event_message(f"【報價資料不完整】索引:{stock_idx}, 欄位數:{len(values)}")
+                    return
                     
-                    # 更新報價表格
+                stock_no = values[0].strip() if values[0] else ""      # 股票代號
+                stock_name = values[1].strip() if values[1] else ""    # 股票名稱
+                close_price = values[2].strip() if values[2] else "0"   # 成交價
+                change = values[3].strip() if values[3] else "0"        # 漲跌
+                change_pct = values[4].strip() if values[4] else "0%"    # 漲跌幅
+                volume = values[5].strip() if values[5] else "0"        # 成交量
+                bid_price = values[6].strip() if values[6] else "0"     # 買價
+                ask_price = values[7].strip() if values[7] else "0"     # 賣價
+                time_str = values[8].strip() if values[8] else ""      # 時間
+                
+                # 檢查股票代號是否有效
+                if not stock_no:
+                    self.add_event_message(f"【報價資料警告】股票代號為空，索引:{stock_idx}")
+                    return
+                
+                # 安全更新報價表格
+                try:
+                    updated = False
                     for item in self.quote_tree.get_children():
-                        item_values = self.quote_tree.item(item)['values']
-                        if item_values and item_values[0] == stock_no:
-                            # 更新該股票的報價資料
-                            new_values = (stock_no, stock_name, close_price, change, 
-                                        change_pct, volume, bid_price, ask_price, time_str)
-                            self.quote_tree.item(item, values=new_values)
-                            break
+                        try:
+                            item_values = self.quote_tree.item(item)['values']
+                            if item_values and len(item_values) > 0 and item_values[0] == stock_no:
+                                # 更新該股票的報價資料
+                                new_values = (stock_no, stock_name, close_price, change, 
+                                            change_pct, volume, bid_price, ask_price, time_str)
+                                self.quote_tree.item(item, values=new_values)
+                                updated = True
+                                break
+                        except Exception as tree_error:
+                            self.add_event_message(f"【表格更新錯誤】{str(tree_error)}")
+                            continue
                     
-                    # 顯示報價更新訊息
-                    msg = f"【報價更新】{stock_no} {stock_name} 價格:{close_price} 漲跌:{change}"
+                    # 顯示報價更新訊息 (僅在成功更新時)
+                    if updated:
+                        msg = f"【報價更新】{stock_no} {stock_name} 價格:{close_price} 漲跌:{change}"
+                        self.add_event_message(msg)
+                    
+                except Exception as update_error:
+                    msg = f"【報價表格更新失敗】{str(update_error)}"
                     self.add_event_message(msg)
                     
+            except Exception as parse_error:
+                msg = f"【報價資料解析失敗】{str(parse_error)}"
+                self.add_event_message(msg)
+                    
         except Exception as e:
-            msg = f"【報價處理錯誤】{str(e)}"
+            msg = f"【報價處理嚴重錯誤】{str(e)}"
             self.add_event_message(msg)
         
     # ========== 事件處理方法 ==========
@@ -858,7 +1055,7 @@ class CapitalIntegratedTester:
         password = self.entry_password.get()
         
         if not user_id or not password:
-            messagebox.showwarning("警告", "請輸入使用者帳號和密碼")
+            self.safe_messagebox_warning("警告", "請輸入使用者帳號和密碼")
             return
             
         nCode = m_pSKCenter.SKCenterLib_Login(user_id, password)
@@ -866,10 +1063,11 @@ class CapitalIntegratedTester:
         self.add_method_message(msg)
         
         if nCode == 0:
-            self.connection_status.config(fg='orange')
-            messagebox.showinfo("成功", "登入成功！")
+            self.update_connection_status('orange')  # 橙色表示已登入但報價未連線
+            self.safe_messagebox_info("成功", "登入成功！請記得連線報價伺服器")
         else:
-            messagebox.showerror("錯誤", f"登入失敗: {msg}")
+            self.update_connection_status('red')  # 紅色表示登入失敗
+            self.safe_messagebox_error("錯誤", f"登入失敗: {msg}")
             
     def generate_cert(self):
         """產生雙因子驗證憑證"""
@@ -877,7 +1075,7 @@ class CapitalIntegratedTester:
         cert_id = self.entry_certid.get()
         
         if not user_id or not cert_id:
-            messagebox.showwarning("警告", "請輸入使用者帳號和憑證ID")
+            self.safe_messagebox_warning("警告", "請輸入使用者帳號和憑證ID")
             return
             
         nCode = m_pSKCenter.SKCenterLib_GenerateKeyCert(user_id, cert_id)
@@ -888,7 +1086,7 @@ class CapitalIntegratedTester:
         """初始化代理伺服器"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先選擇使用者")
+            self.safe_messagebox_warning("警告", "請先選擇使用者")
             return
             
         nCode = m_pSKOrder.SKOrderLib_InitialProxyByID(user_id)
@@ -899,7 +1097,7 @@ class CapitalIntegratedTester:
         """斷線代理伺服器"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先選擇使用者")
+            self.safe_messagebox_warning("警告", "請先選擇使用者")
             return
             
         nCode = m_pSKOrder.ProxyDisconnectByID(user_id)
@@ -910,7 +1108,7 @@ class CapitalIntegratedTester:
         """重連代理伺服器"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先選擇使用者")
+            self.safe_messagebox_warning("警告", "請先選擇使用者")
             return
             
         nCode = m_pSKOrder.ProxyReconnectByID(user_id)
@@ -923,7 +1121,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         nCode = m_pSKOrder.AddSGXAPIOrderSocket(user_id, account)
@@ -941,7 +1139,7 @@ class CapitalIntegratedTester:
         qty = self.entry_ts_qty.get()
         
         if not all([user_id, account, stock, price, qty]):
-            messagebox.showwarning("警告", "請填寫完整的委託資料")
+            self.safe_messagebox_warning("警告", "請填寫完整的委託資料")
             return
             
         try:
@@ -984,7 +1182,7 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【台股下單成功】代號:{stock} 價格:{price} 數量:{qty} 買賣:{buysell_text}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "台股委託已送出")
+                self.safe_messagebox_info("成功", "台股委託已送出")
                 
                 # 清空欄位
                 self.entry_ts_stock.delete(0, 'end')
@@ -994,12 +1192,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【台股下單失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"下單失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"下單失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【台股下單錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"下單發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"下單發生錯誤: {str(e)}")
         
     def send_ts_async_order(self):
         """送出台股非同步委託"""
@@ -1026,7 +1224,7 @@ class CapitalIntegratedTester:
         qty = self.entry_tf_qty.get()
         
         if not all([user_id, account, stock, price, qty]):
-            messagebox.showwarning("警告", "請填寫完整的期貨委託資料")
+            self.safe_messagebox_warning("警告", "請填寫完整的期貨委託資料")
             return
             
         try:
@@ -1064,7 +1262,7 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【期貨下單成功】代號:{stock} 價格:{price} 數量:{qty} 買賣:{buysell_text} 新平倉:{newclose_text}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "期貨委託已送出")
+                self.safe_messagebox_info("成功", "期貨委託已送出")
                 
                 # 清空欄位
                 self.entry_tf_stock.delete(0, 'end')
@@ -1074,12 +1272,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【期貨下單失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"期貨下單失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"期貨下單失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【期貨下單錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"期貨下單發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"期貨下單發生錯誤: {str(e)}")
         
     def send_tf_duplex_order(self):
         """送出複式單委託"""
@@ -1091,7 +1289,7 @@ class CapitalIntegratedTester:
         qty = self.entry_tf_qty.get()
         
         if not all([user_id, account, stock, price, qty]):
-            messagebox.showwarning("警告", "請填寫完整的複式單委託資料")
+            self.safe_messagebox_warning("警告", "請填寫完整的複式單委託資料")
             return
             
         try:
@@ -1108,17 +1306,17 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【複式單下單成功】代號:{stock} 價格:{price} 數量:{qty}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "複式單委託已送出")
+                self.safe_messagebox_info("成功", "複式單委託已送出")
             else:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【複式單下單失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"複式單下單失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"複式單下單失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【複式單下單錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"複式單下單發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"複式單下單發生錯誤: {str(e)}")
         
     def send_os_order(self):
         """送出海外股票委託"""
@@ -1127,7 +1325,7 @@ class CapitalIntegratedTester:
         stock = self.entry_os_stock.get()
         
         if not all([user_id, account, stock]):
-            messagebox.showwarning("警告", "請填寫完整的海外股票委託資料")
+            self.safe_messagebox_warning("警告", "請填寫完整的海外股票委託資料")
             return
             
         try:
@@ -1148,7 +1346,7 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【海外股票下單成功】代號:{stock} 帳號:{account}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "海外股票委託已送出")
+                self.safe_messagebox_info("成功", "海外股票委託已送出")
                 
                 # 清空欄位
                 self.entry_os_stock.delete(0, 'end')
@@ -1156,12 +1354,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【海外股票下單失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"海外股票下單失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"海外股票下單失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【海外股票下單錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"海外股票下單發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"海外股票下單發生錯誤: {str(e)}")
         
     def send_of_order(self):
         """送出海外期貨委託"""
@@ -1170,7 +1368,7 @@ class CapitalIntegratedTester:
         stock = self.entry_of_stock.get()
         
         if not all([user_id, account, stock]):
-            messagebox.showwarning("警告", "請填寫完整的海外期貨委託資料")
+            self.safe_messagebox_warning("警告", "請填寫完整的海外期貨委託資料")
             return
             
         try:
@@ -1191,7 +1389,7 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【海外期貨下單成功】代號:{stock} 帳號:{account}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "海外期貨委託已送出")
+                self.safe_messagebox_info("成功", "海外期貨委託已送出")
                 
                 # 清空欄位
                 self.entry_of_stock.delete(0, 'end')
@@ -1199,12 +1397,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【海外期貨下單失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"海外期貨下單失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"海外期貨下單失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【海外期貨下單錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"海外期貨下單發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"海外期貨下單發生錯誤: {str(e)}")
         
     # ========== 查詢相關方法 ==========
     def query_order_report(self):
@@ -1213,7 +1411,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         # 取得查詢格式
@@ -1238,7 +1436,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         # 取得查詢格式
@@ -1263,7 +1461,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         try:
@@ -1276,12 +1474,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【即時庫存查詢失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"即時庫存查詢失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"即時庫存查詢失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【即時庫存查詢錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"即時庫存查詢發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"即時庫存查詢發生錯誤: {str(e)}")
         
     def query_balance_query(self):
         """查詢集保庫存"""
@@ -1289,7 +1487,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         try:
@@ -1302,12 +1500,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【集保庫存查詢失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"集保庫存查詢失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"集保庫存查詢失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【集保庫存查詢錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"集保庫存查詢發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"集保庫存查詢發生錯誤: {str(e)}")
         
     def query_margin_limit(self):
         """查詢資券配額"""
@@ -1315,7 +1513,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         try:
@@ -1328,12 +1526,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【資券配額查詢失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"資券配額查詢失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"資券配額查詢失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【資券配額查詢錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"資券配額查詢發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"資券配額查詢發生錯誤: {str(e)}")
         
     def query_profit_loss(self):
         """查詢損益"""
@@ -1341,7 +1539,7 @@ class CapitalIntegratedTester:
         account = self.combo_account.get()
         
         if not user_id or not account:
-            messagebox.showwarning("警告", "請先選擇使用者和帳號")
+            self.safe_messagebox_warning("警告", "請先選擇使用者和帳號")
             return
             
         try:
@@ -1354,66 +1552,121 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【損益查詢失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"損益查詢失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"損益查詢失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【損益查詢錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"損益查詢發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"損益查詢發生錯誤: {str(e)}")
         
     # ========== 報價相關方法 ==========
     def connect_quote(self):
         """建立報價連線"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先登入並選擇使用者")
+            self.safe_messagebox_warning("警告", "請先登入並選擇使用者")
             return
             
         try:
-            # 1. 先進入監控模式
-            nCode = m_pSKQuote.SKQuoteLib_EnterMonitor()
-            if nCode == 0:
-                msg = f"【進入監控模式成功】"
+            # 檢查 COM 物件是否可用
+            if not hasattr(m_pSKQuote, 'SKQuoteLib_EnterMonitorLONG'):
+                msg = "【報價連線失敗】SKQuoteLib COM 物件初始化不完整"
                 self.add_method_message(msg)
-            else:
-                error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
-                msg = f"【進入監控模式失敗】{error_msg}"
-                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", "報價系統未正確初始化，請重新啟動程式")
+                return
                 
-            # 2. 連線報價伺服器
-            nCode = m_pSKQuote.SKQuoteLib_ConnectByID(user_id)
+            self.add_method_message(f"【開始連線報價主機】使用者: {user_id}")
+            
+            # 1. 連線報價主機 (使用正確的方法)
+            try:
+                nCode = m_pSKQuote.SKQuoteLib_EnterMonitorLONG()
+            except Exception as api_error:
+                msg = f"【報價連線API調用失敗】{str(api_error)}"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", f"報價連線API調用失敗: {str(api_error)}")
+                return
+                
             if nCode == 0:
-                msg = f"【報價伺服器連線成功】使用者: {user_id}"
+                msg = f"【報價主機連線成功】使用者: {user_id}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "報價伺服器連線成功！現在可以訂閱報價")
-                self.connection_status.config(fg='green')
+                self.safe_messagebox_info("成功", "報價主機連線成功！現在可以訂閱報價")
+                self.update_connection_status('green')
             else:
-                error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
-                msg = f"【報價伺服器連線失敗】{error_msg}"
+                try:
+                    error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
+                except:
+                    error_msg = f"錯誤代碼: {nCode}"
+                msg = f"【報價主機連線失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"報價伺服器連線失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"報價主機連線失敗: {error_msg}")
+                return
                 
         except Exception as e:
             msg = f"【報價連線錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"報價連線發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"報價連線發生錯誤: {str(e)}")
+    
+    def disconnect_quote(self):
+        """斷線報價"""
+        try:
+            nCode = m_pSKQuote.SKQuoteLib_LeaveMonitor()
+            if nCode == 0:
+                msg = f"【報價主機斷線成功】"
+                self.add_method_message(msg)
+                self.safe_messagebox_info("成功", "報價主機已斷線")
+                self.update_connection_status('red')
+            else:
+                error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
+                msg = f"【報價主機斷線失敗】{error_msg}"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", f"報價主機斷線失敗: {error_msg}")
+                
+        except Exception as e:
+            msg = f"【報價斷線錯誤】{str(e)}"
+            self.add_method_message(msg)
+            self.safe_messagebox_error("錯誤", f"報價斷線發生錯誤: {str(e)}")
     
     def subscribe_quote(self):
         """訂閱報價"""
-        stock = self.entry_quote_stock.get()
+        stock = self.entry_quote_stock.get().strip()
         if not stock:
-            messagebox.showwarning("警告", "請輸入股票代號")
+            self.safe_messagebox_warning("警告", "請輸入股票代號")
             return
             
         try:
             # 檢查是否已登入
             user_id = self.combo_userid.get()
             if not user_id:
-                messagebox.showwarning("警告", "請先登入並選擇使用者")
+                self.safe_messagebox_warning("警告", "請先登入並選擇使用者")
                 return
                 
+            # 檢查連線狀態
+            if self.connection_status.cget('fg') == 'red':
+                self.safe_messagebox_warning("警告", "請先點擊「連線報價」建立報價連線")
+                return
+                
+            # 檢查 COM 物件是否可用
+            if not hasattr(m_pSKQuote, 'SKQuoteLib_RequestStocks'):
+                msg = "【報價訂閱失敗】SKQuoteLib COM 物件方法不可用"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", "報價系統未正確初始化，請重新啟動程式")
+                return
+                
+            self.add_method_message(f"【開始訂閱報價】股票代號: {stock}")
+            
             # 訂閱股票報價 (psPageNo: 頁碼，從0開始)
-            psPageNo, nCode = m_pSKQuote.SKQuoteLib_RequestStocks(0, stock)
+            try:
+                result = m_pSKQuote.SKQuoteLib_RequestStocks(0, stock)
+                if isinstance(result, tuple) and len(result) == 2:
+                    psPageNo, nCode = result
+                else:
+                    nCode = result if isinstance(result, int) else -1
+                    psPageNo = 0
+            except Exception as api_error:
+                msg = f"【訂閱API調用錯誤】{str(api_error)}"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", f"訂閱API調用錯誤，請確認股票代號正確或重新建立報價連線: {str(api_error)}")
+                return
             
             if nCode == 0:
                 msg = f"【報價訂閱成功】股票代號: {stock}"
@@ -1425,22 +1678,25 @@ class CapitalIntegratedTester:
                 # 清空輸入欄
                 self.entry_quote_stock.delete(0, 'end')
             else:
-                error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
+                try:
+                    error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
+                except:
+                    error_msg = f"錯誤代碼: {nCode}"
                 msg = f"【報價訂閱失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"報價訂閱失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"報價訂閱失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【報價訂閱錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"報價訂閱發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"報價訂閱發生錯誤: {str(e)}")
         
     def unsubscribe_quote(self):
         """取消訂閱報價"""
         # 取得選中的項目
         selected_items = self.quote_tree.selection()
         if not selected_items:
-            messagebox.showwarning("警告", "請先選擇要取消的股票")
+            self.safe_messagebox_warning("警告", "請先選擇要取消的股票")
             return
             
         try:
@@ -1466,29 +1722,54 @@ class CapitalIntegratedTester:
         except Exception as e:
             msg = f"【取消訂閱錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"取消訂閱發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"取消訂閱發生錯誤: {str(e)}")
         
     def subscribe_tick(self):
         """訂閱逐筆"""
-        stock = self.entry_quote_stock.get()
+        stock = self.entry_quote_stock.get().strip()
         if not stock:
-            messagebox.showwarning("警告", "請輸入股票代號")
+            self.safe_messagebox_warning("警告", "請輸入股票代號")
             return
             
         try:
             # 檢查是否已登入
             user_id = self.combo_userid.get()
             if not user_id:
-                messagebox.showwarning("警告", "請先登入並選擇使用者")
+                self.safe_messagebox_warning("警告", "請先登入並選擇使用者")
                 return
                 
+            # 檢查連線狀態
+            if self.connection_status.cget('fg') == 'red':
+                self.safe_messagebox_warning("警告", "請先點擊「連線報價」建立報價連線")
+                return
+                
+            # 檢查 COM 物件是否可用
+            if not hasattr(m_pSKQuote, 'SKQuoteLib_RequestTicks'):
+                msg = "【逐筆訂閱失敗】SKQuoteLib COM 物件方法不可用"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", "報價系統未正確初始化，請重新啟動程式")
+                return
+                
+            self.add_method_message(f"【開始訂閱逐筆】股票代號: {stock}")
+            
             # 訂閱逐筆資料 (psPageNo: 頁碼，從0開始)
-            psPageNo, nCode = m_pSKQuote.SKQuoteLib_RequestTicks(0, stock)
+            try:
+                result = m_pSKQuote.SKQuoteLib_RequestTicks(0, stock)
+                if isinstance(result, tuple) and len(result) == 2:
+                    psPageNo, nCode = result
+                else:
+                    nCode = result if isinstance(result, int) else -1
+                    psPageNo = 0
+            except Exception as api_error:
+                msg = f"【逐筆API調用錯誤】{str(api_error)}"
+                self.add_method_message(msg)
+                self.safe_messagebox_error("錯誤", f"逐筆API調用錯誤，請確認股票代號正確或重新建立報價連線: {str(api_error)}")
+                return
             
             if nCode == 0:
                 msg = f"【逐筆訂閱成功】股票代號: {stock}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", f"已訂閱 {stock} 逐筆資料")
+                self.safe_messagebox_info("成功", f"已訂閱 {stock} 逐筆資料")
                 
                 # 清空輸入欄
                 self.entry_quote_stock.delete(0, 'end')
@@ -1496,12 +1777,12 @@ class CapitalIntegratedTester:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【逐筆訂閱失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"逐筆訂閱失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"逐筆訂閱失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【逐筆訂閱錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"逐筆訂閱發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"逐筆訂閱發生錯誤: {str(e)}")
         
     def subscribe_os_quote(self):
         """訂閱海外股票報價"""
@@ -1518,7 +1799,7 @@ class CapitalIntegratedTester:
         """連線回報"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先選擇使用者")
+            self.safe_messagebox_warning("警告", "請先選擇使用者")
             return
             
         try:
@@ -1527,23 +1808,23 @@ class CapitalIntegratedTester:
             if nCode == 0:
                 msg = f"【回報連線成功】使用者: {user_id}"
                 self.add_method_message(msg)
-                messagebox.showinfo("成功", "回報伺服器連線成功")
+                self.safe_messagebox_info("成功", "回報伺服器連線成功")
             else:
                 error_msg = m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)
                 msg = f"【回報連線失敗】{error_msg}"
                 self.add_method_message(msg)
-                messagebox.showerror("錯誤", f"回報連線失敗: {error_msg}")
+                self.safe_messagebox_error("錯誤", f"回報連線失敗: {error_msg}")
                 
         except Exception as e:
             msg = f"【回報連線錯誤】{str(e)}"
             self.add_method_message(msg)
-            messagebox.showerror("錯誤", f"回報連線發生錯誤: {str(e)}")
+            self.safe_messagebox_error("錯誤", f"回報連線發生錯誤: {str(e)}")
         
     def disconnect_reply(self):
         """斷線回報"""
         user_id = self.combo_userid.get()
         if not user_id:
-            messagebox.showwarning("警告", "請先選擇使用者")
+            self.safe_messagebox_warning("警告", "請先選擇使用者")
             return
             
         nCode = m_pSKReply.SKReplyLib_CloseByID(user_id)
@@ -1564,12 +1845,12 @@ class CapitalIntegratedTester:
             nCode = m_pSKCenter.SKCenterLib_SetLogPath(folder_path)
             msg = f"【SKCenterLib_SetLogPath】{m_pSKCenter.SKCenterLib_GetReturnCodeMessage(nCode)}"
             self.add_method_message(msg)
-            messagebox.showinfo("成功", f"LOG路徑已設定為: {folder_path}")
+            self.safe_messagebox_info("成功", f"LOG路徑已設定為: {folder_path}")
             
     def show_api_version(self):
         """顯示API版本資訊"""
         version = self.get_api_version()
-        messagebox.showinfo("API版本資訊", f"群益證券API版本: {version}")
+        self.safe_messagebox_info("API版本資訊", f"群益證券API 版本: {version}")
         
     def show_last_log(self):
         """顯示最後LOG資訊"""
@@ -1593,7 +1874,7 @@ class CapitalIntegratedTester:
 
 基於: 群益證券 API v2.13.55"""
         
-        messagebox.showinfo("關於", about_text)
+        self.safe_messagebox_info("關於", about_text)
         
     def run(self):
         """啟動應用程式"""
