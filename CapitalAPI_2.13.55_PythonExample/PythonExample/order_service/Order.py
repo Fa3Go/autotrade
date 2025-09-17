@@ -1,6 +1,10 @@
 # 先把API com元件初始化
 import os,time
 from ctypes import wintypes
+import sys
+# 正確設定Quote_Service目錄路徑
+quote_service_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "Quote_Service")
+sys.path.append(quote_service_path)
 
 # 第一種讓群益API元件可導入讓Python code使用的方法 win32com
 #import win32com.client
@@ -17,6 +21,50 @@ from ctypes import wintypes
 import comtypes.client
 comtypes.client.GetModule(os.path.split(os.path.realpath(__file__))[0] + r"/SKCOM.dll")
 import Global
+
+# 引入Quote模組
+try:
+    # 先載入Quote專用的Config模組並給它一個別名
+    import importlib.util
+    quote_config_path = os.path.join(quote_service_path, "Config.py")
+    spec = importlib.util.spec_from_file_location("QuoteConfig", quote_config_path)
+    QuoteConfig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(QuoteConfig)
+
+    # 暫時保存當前的Config模組（如果存在）
+    original_config = None
+    if 'Config' in sys.modules:
+        original_config = sys.modules['Config']
+
+    # 將Quote的Config注入到sys.modules中
+    sys.modules['Config'] = QuoteConfig
+
+    # 載入Quote模組
+    import Quote
+
+    # 恢復原始的Config模組
+    if original_config:
+        sys.modules['Config'] = original_config
+    elif 'Config' in sys.modules:
+        del sys.modules['Config']
+
+    print("Quote模組載入成功")
+
+    # 設置函數來共享全局變量
+    def setup_quote_globals():
+        if 'GlobalListInformation' in globals() and 'Global_ID' in globals():
+            Quote.GlobalListInformation = GlobalListInformation
+            Quote.Global_ID = Global_ID
+            print("Quote全局變量設置完成")
+
+    Quote.setup_quote_globals = setup_quote_globals
+
+except ImportError as e:
+    Quote = None
+    print(f"Quote模組載入失敗: {e}")
+except Exception as e:
+    Quote = None
+    print(f"Quote模組載入過程中發生錯誤: {e}")
 
 skC = Global.skC
 skO = Global.skO
@@ -139,6 +187,10 @@ class __FrameLogin(Frame):
                  Global_ID["text"] = self.textID.get().replace(' ','')
                  Global.SetID(Global_ID["text"])
                  self.__oMsg.WriteMessage("【 登入成功 】", self.listInformation)
+
+                 # 設置Quote模組的全局變量
+                 if Quote and hasattr(Quote, 'setup_quote_globals'):
+                     Quote.setup_quote_globals()
             else:
                  self.__oMsg.SendReturnMessage("Login", m_nCode, "Login", self.listInformation)
 
@@ -154,7 +206,7 @@ class __FrameOrder(Frame):
         )
 
         self.__CreateWidget()
-
+    # 下單功能區
     def __CreateWidget(self):
         frame = Frame(self, style="Pink.TFrame")
         frame.grid(column = 0, row = 0)
@@ -164,6 +216,7 @@ class __FrameOrder(Frame):
         self.__FAccount(frame)
         self.__QuoteLimit(frame)
 
+    # 下單功能
     def __FOrder(self, master):
         frame = Frame(master, style="Pink.TFrame")
         frame.grid(column = 0, row = 0,columnspan = 2, sticky = 'ew')
@@ -310,7 +363,7 @@ class __FrameOrder(Frame):
         btnUnlockOrder.grid(column = 9, row =  0, padx = 10)
         
 
-
+    # 下單tab
     def __AddTab(self, master):
         tab = Notebook(master, style="Pink.TNotebook")
         tab.grid(column = 0, row = 3,columnspan = 2, sticky = 'ew')
@@ -464,7 +517,7 @@ class __FrameOrder(Frame):
             messagebox.showerror("error！", e)
             
     
-
+# 下單callback function
 class SKCenterLibEvent():
     def __init__(self):
         self.__obj = dict(
@@ -491,6 +544,7 @@ class SKCenterLibEvent():
             strMsg = (bstrOFAccount+"SGX_API登入失敗")
         self.__obj["msg"].WriteMessage(strMsg,GlobalListInformation)
 
+# 下單callback function
 class SKOrderLibEvent():
     __account_list = dict(
         stock = [],
@@ -499,11 +553,13 @@ class SKOrderLibEvent():
         foreign_stock = [],
     )
 
+    # 下單callback function
     def __init__(self):
         self.__obj = dict(
             msg = MessageControl.MessageControl(),
         )
 
+    #取得使用者帳號回傳
     def OnAccount(self, bstrLogInID, bstrAccountData):
         strValues = bstrAccountData.split(',')
         strAccount = strValues[1] + strValues[3]
@@ -522,56 +578,71 @@ class SKOrderLibEvent():
             SKOrderLibEvent.__account_list['foreign_stock'].append(strAccount)
             GlobalboxForeignStockAccount['values'] = SKOrderLibEvent.__account_list['foreign_stock']
 
+    # 取得使用者憑證回傳
     def OnOpenInterest(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 取得使用者憑證回傳
     def OnFutureRights(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 非同步下單回報
     def OnAsyncOrder(self,nThreadID,nCode,bstrMessage):
         self.__obj["msg"].WriteMessage("ThreadID:"+str(nThreadID)+"_Code:"+str(nCode)+"_Message:"+bstrMessage,GlobalListInformation)
 
+    # 海外期貨選擇權回報
     def OnOverseaFutureOpenInterest(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 海外期貨權益回報
     def OnOverSeaFutureRight(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 海外期貨回報
     def OnOverseaFuture(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 海外選擇權回報
     def OnOverseaOption(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 即時庫存回報
     def OnRealBalanceReport(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 即時損益回報
     def OnBalanceQuery(self, bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 即時損益回報
     def OnRequestProfitReport(self, bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 融資融券回報
     def OnMarginPurchaseAmountLimit(self,bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 非同步下單回報(含委託書號)
     def OnAsyncOrderOLID(self,nThreadID,nCode,bstrMessage,bstrOrderLinkedID):
         strMsg = "Message: "+bstrMessage+" "+bstrOrderLinkedID
         self.__obj["msg"].WriteMessage("ThreadID:"+str(nThreadID)+"_Code:"+str(nCode)+"_Message:"+strMsg,GlobalListInformation)
 
+    # 停損單回報
     def OnStopLossReport(self, bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
+    # 智慧單回報
     def OnTSSmartStrategyReport(self, bstrData):
         self.__obj["msg"].WriteMessage(bstrData,GlobalListInformation)
 
-
+# 回報callback function
 class SKReplyLibEvent():
     def __init__(self):
         self.__obj = dict(
             msg = MessageControl.MessageControl(),
         )
-
+    
+    # 回報訊息
     def OnReplyMessage(self,bstrUserID, bstrMessages):
         sConfirmCode = -1
         self.__obj["msg"].WriteMessage(bstrMessages,GlobalListInformation)
@@ -595,7 +666,27 @@ SKCenterLibEventHandler = comtypes.client.GetEvents(skC,SKCenterEvent)
 if __name__ == '__main__':
     root = Tk()
     root.title("PythonExampleOrder")
+    root.geometry("1300x900")
     root["background"] = "#F5F5F5"
+
+    # 創建主要的Canvas和Scrollbar
+    main_canvas = Canvas(root, bg="#F5F5F5")
+    scrollbar = Scrollbar(root, orient="vertical", command=main_canvas.yview)
+    scrollable_frame = Frame(main_canvas, style="Pink.TFrame")
+
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+    )
+
+    main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    main_canvas.configure(yscrollcommand=scrollbar.set)
+
+    # 滑鼠滾輪綁定
+    def _on_mousewheel(event):
+        main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+    main_canvas.bind("<MouseWheel>", _on_mousewheel)
 
     s = Style()
 
@@ -612,11 +703,29 @@ if __name__ == '__main__':
     s.configure("PinkFiller.TLabel", font = 1, foreground = "#F5F5F5", background = "#F5F5F5")
 
     # Center
-    __FrameLogin(master = root)
+    __FrameLogin(master = scrollable_frame)
 
     # OrderTab
-    root.TabControl = Notebook(root, style="Pink.TNotebook")
+    root.TabControl = Notebook(scrollable_frame, style="Pink.TNotebook")
     root.TabControl.grid(column = 0, row = 1, sticky = 'ew', padx = 10, pady = 5)
-    root.TabControl.add(__FrameOrder(master = root), text="下單")
+    root.TabControl.add(__FrameOrder(master = scrollable_frame), text="下單")
+
+    # QuoteTab
+    if Quote:
+        try:
+            # 先設置Quote的全局變量（以防登入狀態已存在）
+            if hasattr(Quote, 'setup_quote_globals'):
+                Quote.setup_quote_globals()
+
+            root.TabControl.add(Quote.FrameQuote(master = scrollable_frame), text="報價")
+            print("報價Tab加入成功")
+        except Exception as e:
+            print(f"加入報價Tab失敗: {e}")
+    else:
+        print("Quote模組未載入，跳過報價功能")
+
+    # 布局Canvas和Scrollbar
+    main_canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
 
     root.mainloop()

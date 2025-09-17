@@ -32,6 +32,9 @@ import math
 # 其它物件
 import Config
 
+# 全局變量聲明 - 這些將由Order.py動態設置
+GlobalListInformation = None
+Global_ID = None
 
 # 顯示各功能狀態用的function
 def WriteMessage(strMsg,listInformation):
@@ -44,79 +47,11 @@ def GetMessage(strType,nCode,strMessage,listInformation):
     if (nCode != 0):
         strInfo ="【"+ skC.SKCenterLib_GetLastLogInfo()+ "】"
     WriteMessage("【" + strType + "】【" + strMessage + "】【" + skC.SKCenterLib_GetReturnCodeMessage(nCode) + "】" + strInfo,listInformation)
+
 #----------------------------------------------------------------------------------------------------------------------------------------------------
-#上半部登入框
-class FrameLogin(Frame):
-    def __init__(self, master = None):
-        Frame.__init__(self, master)
-        self.grid()
-        #self.pack()
-        self.place()
-        self.FrameLogin = Frame(self)
-        self.master["background"] = "#F5F5F5"
-        self.FrameLogin.master["background"] = "#F5F5F5" 
-        self.createWidgets()
-    def createWidgets(self):
-        #帳號
-        self.labelID = Label(self)
-        self.labelID["text"] = "帳號："
-        self.labelID["background"] = "#F5F5F5"
-        self.labelID["font"] = 20
-        self.labelID.grid(column=0,row=0)
-            #輸入框
-        self.textID = Entry(self)
-        self.textID["width"] = 50
-        self.textID.grid(column = 1, row = 0)
+# 移除獨立的登入框 - 將使用Order.py的登入狀態
 
-        #密碼
-        self.labelPassword = Label(self)
-        self.labelPassword["text"] = "密碼："
-        self.labelPassword["background"] = "#F5F5F5"
-        self.labelPassword["font"] = 20
-        self.labelPassword.grid(column = 2, row = 0)
-            #輸入框
-        self.textPassword = Entry(self)
-        self.textPassword["width"] = 50
-        self.textPassword['show'] = '*'
-        self.textPassword.grid(column = 3, row = 0)
-        
-        #按鈕
-        self.buttonLogin = Button(self)
-        self.buttonLogin["text"] = "登入"
-        self.buttonLogin["background"] = "#4169E1"
-        self.buttonLogin["foreground"] = "#ffffff"
-        self.buttonLogin["font"] = 20
-        self.buttonLogin["command"] = self.buttonLogin_Click
-        self.buttonLogin.grid(column = 4, row = 0)
-
-        #ID
-        self.labelID = Label(self)
-        self.labelID["text"] = "<<ID>>"
-        self.labelID["background"] = "#F5F5F5"
-        self.labelID["font"] = 20
-        self.labelID.grid(column = 5, row = 0)
-
-        #訊息欄
-        self.listInformation = Listbox(root, height=5)
-        self.listInformation.grid(column = 0, row = 1, sticky = E + W)
-
-        global GlobalListInformation,Global_ID
-        GlobalListInformation = self.listInformation
-        Global_ID = self.labelID
-    # 這裡是登入按鈕,使用群益API不管要幹嘛你都要先登入才行
-    def buttonLogin_Click(self):
-        try:
-            m_nCode = skC.SKCenterLib_SetLogPath(os.path.split(os.path.realpath(__file__))[0] + "\\CapitalLog_Quote")
-            m_nCode = skC.SKCenterLib_Login(self.textID.get().replace(' ',''),self.textPassword.get().replace(' ',''))
-            if(m_nCode==0):
-                Global_ID["text"] =  self.textID.get().replace(' ','')
-                WriteMessage("登入成功",self.listInformation)
-            else:
-                WriteMessage(m_nCode,self.listInformation)
-        except Exception as e:
-            messagebox.showerror("error！",e)
-
-# 報價連線的按鈕
+    # 報價連線的按鈕
 class FrameQuote(Frame):
     def __init__(self, master = None):
         Frame.__init__(self, master)
@@ -175,6 +110,7 @@ class FrameQuote(Frame):
         self.TabControl.add(StockList(master = self),text="StockList")
         self.TabControl.grid(column = 0, row = 2, sticky = E + W, columnspan = 4)
 
+    # 這裡是報價連線按鈕
     def btnConnect_Click(self):
         try:
            m_nCode = skQ.SKQuoteLib_EnterMonitorLONG()
@@ -182,6 +118,7 @@ class FrameQuote(Frame):
         except Exception as e:
             messagebox.showerror("error！",e)
     
+    # 這裡是報價斷線按鈕
     def btnDisconnect_Click(self):
         try:
             m_nCode = skQ.SKQuoteLib_LeaveMonitor()
@@ -192,7 +129,7 @@ class FrameQuote(Frame):
                 SendReturnMessage("Quote", m_nCode, "SKQuoteLib_LeaveMonitor",GlobalListInformation)
         except Exception as e:
             messagebox.showerror("error！",e)
-
+    # 這裡是主機時間按鈕
     def btnTime_Click(self):
         try:
            m_nCode = skQ.SKQuoteLib_RequestServerTime()
@@ -1359,18 +1296,4 @@ SKReplyEvent = SKReplyLibEvent()
 SKReplyLibEventHandler = comtypes.client.GetEvents(skR, SKReplyEvent)
 
 
-if __name__ == '__main__':
-    #Globals.initialize()
-    root = Tk()
-    root.title("PythonExampleQuote")
-
-    
-    # Center
-    FrameLogin(master = root)
-
-    #TabControl
-    root.TabControl = Notebook(root)
-    root.TabControl.add(FrameQuote(master = root),text="報價功能")
-    root.TabControl.grid(column = 0, row = 2, sticky = 'ew', padx = 10, pady = 10)
-
-    root.mainloop()
+# 移除主程式部分 - Quote.py現在作為模組被Order.py引入使用
