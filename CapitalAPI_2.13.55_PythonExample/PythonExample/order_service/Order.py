@@ -94,6 +94,7 @@ import MessageControl
 import Config
 #import WithDraw
 import StockSmartTrade
+import DoubleSellSpreadStrategy
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 
 # 上半部登入框
@@ -157,23 +158,25 @@ class __FrameLogin(Frame):
         try:
             self.__obj = dict(
                 # 證券
-                stock = StockOrder.StockOrder(information = self.listInformation),
+                # stock = StockOrder.StockOrder(information = self.listInformation),
                 # 期貨
                 future = FutureOrder.FutureOrder(information = self.listInformation),
                 # 選擇權
                 option = OptionOrder.OptionOrder(information = self.listInformation),
+                # 雙賣價差單策略
+                double_sell_spread = DoubleSellSpreadStrategy.DoubleSellSpreadStrategy(information = self.listInformation),
                 # 海期
-                sea_future = SeaFutureOrder.SeaFutureOrder(information = self.listInformation),
+                # sea_future = SeaFutureOrder.SeaFutureOrder(information = self.listInformation),
                 # 海選
-                sea_option = SeaOptionOrder.SeaOptionOrder(information = self.listInformation),
+                # sea_option = SeaOptionOrder.SeaOptionOrder(information = self.listInformation),
                 # 智慧單-停損
                 stop_loss = StopLossOrderGui.StopLossOrderGui(information = self.listInformation),
                 # 智慧單-MIT
                 mit = SendMITOrder.SendMITOrder(information = self.listInformation),
                 # 智慧單-證券
-                stock_smart = StockSmartTrade.StockSmartTrade(information = self.listInformation),
+                # stock_smart = StockSmartTrade.StockSmartTrade(information = self.listInformation),
                 # 複委託
-                foreign_stock = ForeignStockOrder.ForeignStockOrder(information = self.listInformation),
+                # foreign_stock = ForeignStockOrder.ForeignStockOrder(information = self.listInformation),
                 # 出入金
                 #withdraw = WithDraw.WithDraw(information = self.listInformation),
             )
@@ -283,6 +286,7 @@ class __FrameOrder(Frame):
         def __FutureCallBack(even):
             self.__obj['future'].SetAccount(self.boxFutureAccount.get())
             self.__obj['option'].SetAccount(self.boxFutureAccount.get())
+            self.__obj['double_sell_spread'].SetAccount(self.boxFutureAccount.get())
             self.__obj['stop_loss'].SetAccount(self.boxFutureAccount.get())
             #self.__obj['withdraw'].SetAccount(self.boxFutureAccount.get())
             self.__obj['mit'].SetAccount(self.boxFutureAccount.get())
@@ -369,8 +373,8 @@ class __FrameOrder(Frame):
         tab.grid(column = 0, row = 3,columnspan = 2, sticky = 'ew')
 
         # 證券
-        self.__obj['stock'] = StockOrder.StockOrder(information = GlobalListInformation)
-        tab.add(self.__obj['stock'], text="證券   ")
+        # self.__obj['stock'] = StockOrder.StockOrder(information = GlobalListInformation)
+        # tab.add(self.__obj['stock'], text="證券   ")
 
         # 期貨
         self.__obj['future'] = FutureOrder.FutureOrder(information = GlobalListInformation)
@@ -380,17 +384,21 @@ class __FrameOrder(Frame):
         self.__obj['option'] = OptionOrder.OptionOrder(information = GlobalListInformation)
         tab.add(self.__obj['option'], text="選擇權 ")
 
+        # 雙賣價差單策略
+        self.__obj['double_sell_spread'] = DoubleSellSpreadStrategy.DoubleSellSpreadStrategy(information = GlobalListInformation)
+        tab.add(self.__obj['double_sell_spread'], text="雙賣價差單策略 ")
+
         # 海期
-        self.__obj['sea_future'] = SeaFutureOrder.SeaFutureOrder(information = GlobalListInformation)
-        tab.add(self.__obj['sea_future'], text="海期  ")
+        # self.__obj['sea_future'] = SeaFutureOrder.SeaFutureOrder(information = GlobalListInformation)
+        # tab.add(self.__obj['sea_future'], text="海期  ")
 
         # 海選
-        self.__obj['sea_option'] = SeaOptionOrder.SeaOptionOrder(information = GlobalListInformation)
-        tab.add(self.__obj['sea_option'], text="海選  ")
+        # self.__obj['sea_option'] = SeaOptionOrder.SeaOptionOrder(information = GlobalListInformation)
+        # tab.add(self.__obj['sea_option'], text="海選  ")
 
         # 停損
-        self.__obj['stop_loss'] = StopLossOrderGui.StopLossOrderGui(information = GlobalListInformation)
-        tab.add(self.__obj['stop_loss'], text="智慧單-停損  ")
+        # self.__obj['stop_loss'] = StopLossOrderGui.StopLossOrderGui(information = GlobalListInformation)
+        # tab.add(self.__obj['stop_loss'], text="智慧單-停損  ")
 
         #MIT
         self.__obj['mit'] = SendMITOrder.SendMITOrder(information = GlobalListInformation)
@@ -404,9 +412,9 @@ class __FrameOrder(Frame):
         #self.__obj['withdraw'] = WithDraw.WithDraw(information = GlobalListInformation)
         # tab.add(self.__obj['withdraw'], text="出入金(未實測) ")
 
-        # 複委託
-        self.__obj['foreign_stock'] = ForeignStockOrder.ForeignStockOrder(information = GlobalListInformation)
-        tab.add(self.__obj['foreign_stock'], text="複委託  ")
+        # # 複委託
+        # self.__obj['foreign_stock'] = ForeignStockOrder.ForeignStockOrder(information = GlobalListInformation)
+        # tab.add(self.__obj['foreign_stock'], text="複委託  ")
 
     # 下單function
     # 1.下單物件初始
