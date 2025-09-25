@@ -63,715 +63,1072 @@ except Exception as e:
     QUOTE_AVAILABLE = False
     print(f"Quote模組載入失敗: {e} - 將使用模擬價格")
 
+# 雙賣價差單策略類別
 class DoubleSellSpreadStrategy(Frame):
     def __init__(self, information=None):
         Frame.__init__(self)
         self.__oMsg = MessageControl.MessageControl()
-        # UI variable
+        self.__information = information
+
+        # UI變數
         self.__dOrder = dict(
-            listInformation = information,
-            boxAccount = ''
+            listInformation=information,
+            boxAccount='',
+            # Call選擇權相關
+            call_stock_no='',
+            call_price='',
+            call_qty='',
+            # Put選擇權相關
+            put_stock_no='',
+            put_price='',
+            put_qty='',
+            # 策略參數
+            spread_price='',  # 價差委託價
+            trade_type='ROD',  # 委託條件
+            new_close='新倉',   # 倉別
+            # MIT委託參數
+            mit1_enabled=False,  # MIT委託1啟用
+            mit1_stock_no='',    # MIT委託1商品代碼
+            mit1_trigger_price='',  # MIT委託1觸發價
+            mit1_deal_price='',     # MIT委託1委託價
+            mit1_qty='',           # MIT委託1數量
+            mit1_buy_sell='買進',   # MIT委託1買賣別
+            mit2_enabled=False,    # MIT委託2啟用
+            mit2_stock_no='',      # MIT委託2商品代碼
+            mit2_trigger_price='', # MIT委託2觸發價
+            mit2_deal_price='',    # MIT委託2委託價
+            mit2_qty='',          # MIT委託2數量
+            mit2_buy_sell='賣出',   # MIT委託2買賣別
+            # 自動交易參數
+            auto_trading_enabled=False,  # 自動交易啟用
+            auto_buy_price='',          # 自動買入價格
+            auto_sell_price='',         # 自動賣出價格
+            auto_trading_qty='',        # 自動交易數量
+            auto_stock_no='',           # 自動交易商品代碼
+            current_position=0          # 當前部位 (0:空單 1:多單)
         )
-
-        # 策略參數
-        self.__strategy_params = {
-            'call_sell_strike': 0,      # 賣買權履約價
-            'call_sell_premium': 0,     # 賣買權權利金
-            'call_buy_strike': 0,       # 買買權履約價
-            'call_buy_premium': 0,      # 買買權權利金
-            'put_sell_strike': 0,       # 賣賣權履約價
-            'put_sell_premium': 0,      # 賣賣權權利金
-            'put_buy_strike': 0,        # 買賣權履約價
-            'put_buy_premium': 0,       # 買賣權權利金
-            'quantity': 1,              # 委託量
-            'future_symbol': 'MXF',     # 期貨商品代號
-            'option_month': '202501',   # 選擇權月份
-            'monitor_interval': 1       # 監控間隔(秒)
-        }
-
-        # 狀態管理
-        self.__order_status = {
-            'call_spread_order_sent': False,
-            'put_spread_order_sent': False,
-            'hedge_long_sent': False,
-            'hedge_short_sent': False,
-            'monitoring': False
-        }
-
-        # 測試模式設定
-        self.__test_mode = True  # 預設開啟測試模式
-        self.__test_current_price = 25500  # 模擬當前價格
-        self.__use_real_quote = False  # 是否使用實際報價
-        self.__real_price_cache = {}  # 實際價格快取
-        self.__last_quote_time = 0  # 上次報價時間
-
-        # 監控線程
-        self.__monitor_thread = None
-        self.__stop_monitoring = False
 
         self.__CreateWidget()
 
+        # 報價相關
+        self.current_call_price = 0.0
+        self.current_put_price = 0.0
+        self.spread_value = 0.0
+
+        # 自動交易相關
+        self.auto_trading_active = False
+        self.current_auto_price = 0.0
+        self.position_state = 0  # 0:空單, 1:多單
+        self.auto_trade_lock = threading.Lock()  # 防止重複下單的鎖
+
+        # 啟動報價監控
+        if QUOTE_AVAILABLE:
+            self.__start_quote_monitoring()
+
     def SetAccount(self, account):
+        """設定交易帳號"""
         self.__dOrder['boxAccount'] = account
 
     def __CreateWidget(self):
-        # 主框架
-        main_group = LabelFrame(self, text="雙賣價差單策略", style="Pink.TLabelframe")
+        """建立GUI介面"""
+        # 主要框架
+        main_group = LabelFrame(self, text="雙賣價差策略委託", style="Pink.TLabelframe")
         main_group.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
 
-        # 參數設定區域
-        self.__CreateParameterSection(main_group)
-
-        # 控制按鈕區域
-        self.__CreateControlSection(main_group)
-
-        # 狀態顯示區域
-        self.__CreateStatusSection(main_group)
-
-    def __CreateParameterSection(self, parent):
-        # 參數設定框架
-        param_group = LabelFrame(parent, text="策略參數設定", style="Pink.TLabelframe")
-        param_group.grid(column=0, row=0, padx=5, pady=5, sticky='ew', columnspan=2)
-
-        frame = Frame(param_group, style="Pink.TFrame")
-        frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
-
-        # 買權價差單設定
-        call_frame = LabelFrame(frame, text="買權價差單設定", style="Pink.TLabelframe")
+        # Call選擇權區域
+        call_frame = LabelFrame(main_group, text="Call選擇權 (賣出)", style="Pink.TLabelframe")
         call_frame.grid(column=0, row=0, padx=5, pady=5, sticky='w')
 
-        # 賣買權設定
-        Label(call_frame, text="賣買權履約價:", style="Pink.TLabel").grid(column=0, row=0, padx=5, pady=2, sticky='w')
-        self.call_sell_strike_entry = Entry(call_frame, width=10)
-        self.call_sell_strike_entry.grid(column=1, row=0, padx=5, pady=2)
-        self.call_sell_strike_entry.insert(0, "26000")
+        self.__create_option_widgets(call_frame, 'call')
 
-        Label(call_frame, text="賣買權權利金:", style="Pink.TLabel").grid(column=0, row=1, padx=5, pady=2, sticky='w')
-        self.call_sell_premium_entry = Entry(call_frame, width=10)
-        self.call_sell_premium_entry.grid(column=1, row=1, padx=5, pady=2)
-        self.call_sell_premium_entry.insert(0, "20")
-
-        # 買買權設定
-        Label(call_frame, text="買買權履約價:", style="Pink.TLabel").grid(column=2, row=0, padx=5, pady=2, sticky='w')
-        self.call_buy_strike_entry = Entry(call_frame, width=10)
-        self.call_buy_strike_entry.grid(column=3, row=0, padx=5, pady=2)
-        self.call_buy_strike_entry.insert(0, "26100")
-
-        Label(call_frame, text="買買權權利金:", style="Pink.TLabel").grid(column=2, row=1, padx=5, pady=2, sticky='w')
-        self.call_buy_premium_entry = Entry(call_frame, width=10)
-        self.call_buy_premium_entry.grid(column=3, row=1, padx=5, pady=2)
-        self.call_buy_premium_entry.insert(0, "10")
-
-        # 賣權價差單設定
-        put_frame = LabelFrame(frame, text="賣權價差單設定", style="Pink.TLabelframe")
+        # Put選擇權區域
+        put_frame = LabelFrame(main_group, text="Put選擇權 (賣出)", style="Pink.TLabelframe")
         put_frame.grid(column=1, row=0, padx=5, pady=5, sticky='w')
 
-        # 賣賣權設定
-        Label(put_frame, text="賣賣權履約價:", style="Pink.TLabel").grid(column=0, row=0, padx=5, pady=2, sticky='w')
-        self.put_sell_strike_entry = Entry(put_frame, width=10)
-        self.put_sell_strike_entry.grid(column=1, row=0, padx=5, pady=2)
-        self.put_sell_strike_entry.insert(0, "25000")
+        self.__create_option_widgets(put_frame, 'put')
 
-        # 賣賣權權利金
-        Label(put_frame, text="賣賣權權利金:", style="Pink.TLabel").grid(column=0, row=1, padx=5, pady=2, sticky='w')
-        self.put_sell_premium_entry = Entry(put_frame, width=10)
-        self.put_sell_premium_entry.grid(column=1, row=1, padx=5, pady=2)
-        self.put_sell_premium_entry.insert(0, "30")
+        # 策略參數區域
+        strategy_frame = LabelFrame(main_group, text="策略參數", style="Pink.TLabelframe")
+        strategy_frame.grid(column=0, row=1, columnspan=2, padx=5, pady=5, sticky='ew')
 
-        # 買賣權設定
-        Label(put_frame, text="買賣權履約價:", style="Pink.TLabel").grid(column=2, row=0, padx=5, pady=2, sticky='w')
-        self.put_buy_strike_entry = Entry(put_frame, width=10)
-        self.put_buy_strike_entry.grid(column=3, row=0, padx=5, pady=2)
-        self.put_buy_strike_entry.insert(0, "24900")
+        self.__create_strategy_widgets(strategy_frame)
 
-        # 買賣權權利金
-        Label(put_frame, text="買賣權權利金:", style="Pink.TLabel").grid(column=2, row=1, padx=5, pady=2, sticky='w')
-        self.put_buy_premium_entry = Entry(put_frame, width=10)
-        self.put_buy_premium_entry.grid(column=3, row=1, padx=5, pady=2)
-        self.put_buy_premium_entry.insert(0, "10")
+        # 下單按鈕區域
+        button_frame = Frame(main_group, style="Pink.TFrame")
+        button_frame.grid(column=0, row=2, columnspan=2, padx=5, pady=5)
 
-        # 通用設定
-        general_frame = LabelFrame(frame, text="通用設定", style="Pink.TLabelframe")
-        general_frame.grid(column=0, row=1, padx=5, pady=5, sticky='w', columnspan=2)
+        self.__create_order_buttons(button_frame)
+
+        # MIT委託區域
+        mit_frame = LabelFrame(main_group, text="期貨MIT委託", style="Pink.TLabelframe")
+        mit_frame.grid(column=0, row=3, columnspan=2, padx=5, pady=5, sticky='ew')
+
+        self.__create_mit_widgets(mit_frame)
+
+        # 自動交易區域
+        auto_frame = LabelFrame(main_group, text="自動交易設定", style="Pink.TLabelframe")
+        auto_frame.grid(column=0, row=4, columnspan=2, padx=5, pady=5, sticky='ew')
+
+        self.__create_auto_trading_widgets(auto_frame)
+
+        # 監控資訊區域
+        monitor_frame = LabelFrame(main_group, text="即時監控", style="Pink.TLabelframe")
+        monitor_frame.grid(column=0, row=5, columnspan=2, padx=5, pady=5, sticky='ew')
+
+        self.__create_monitor_widgets(monitor_frame)
+
+    def __create_option_widgets(self, parent, option_type):
+        """建立選擇權輸入控件"""
+        frame = Frame(parent, style="Pink.TFrame")
+        frame.grid(column=0, row=0, padx=5, pady=5, sticky='w')
+
+        # 商品代碼
+        lbStockNo = Label(frame, style="Pink.TLabel", text="商品代碼")
+        lbStockNo.grid(column=0, row=0, pady=3)
+
+        txtStockNo = Entry(frame, width=15)
+        txtStockNo.grid(column=0, row=1, padx=5, pady=3, sticky='w')
+        setattr(self, f'txt{option_type.title()}StockNo', txtStockNo)
+
+        # 委託價
+        lbPrice = Label(frame, style="Pink.TLabel", text="委託價")
+        lbPrice.grid(column=1, row=0, pady=3)
+
+        txtPrice = Entry(frame, width=10)
+        txtPrice.grid(column=1, row=1, padx=5, pady=3, sticky='w')
+        setattr(self, f'txt{option_type.title()}Price', txtPrice)
 
         # 委託量
-        Label(general_frame, text="委託量:", style="Pink.TLabel").grid(column=0, row=0, padx=5, pady=2, sticky='w')
-        self.quantity_entry = Entry(general_frame, width=10)
-        self.quantity_entry.grid(column=1, row=0, padx=5, pady=2)
-        self.quantity_entry.insert(0, "1")
+        lbQty = Label(frame, style="Pink.TLabel", text="委託量")
+        lbQty.grid(column=2, row=0, pady=3)
 
-        # 期貨商品代號
-        Label(general_frame, text="期貨商品代號:", style="Pink.TLabel").grid(column=2, row=0, padx=5, pady=2, sticky='w')
-        self.future_symbol_entry = Entry(general_frame, width=10)
-        self.future_symbol_entry.grid(column=3, row=0, padx=5, pady=2)
-        self.future_symbol_entry.insert(0, "MXF")
+        txtQty = Entry(frame, width=8)
+        txtQty.grid(column=2, row=1, padx=5, pady=3, sticky='w')
+        setattr(self, f'txt{option_type.title()}Qty', txtQty)
 
-        # 選擇權月份
-        Label(general_frame, text="選擇權月份:", style="Pink.TLabel").grid(column=0, row=1, padx=5, pady=2, sticky='w')
-        self.option_month_entry = Entry(general_frame, width=10)
-        self.option_month_entry.grid(column=1, row=1, padx=5, pady=2)
-        self.option_month_entry.insert(0, "202501")
+        # 即時價格顯示
+        lbCurrentPrice = Label(frame, style="Pink.TLabel", text="即時價格")
+        lbCurrentPrice.grid(column=3, row=0, pady=3)
 
-        # 監控間隔
-        Label(general_frame, text="監控間隔(秒):", style="Pink.TLabel").grid(column=2, row=1, padx=5, pady=2, sticky='w')
-        self.monitor_interval_entry = Entry(general_frame, width=10)
-        self.monitor_interval_entry.grid(column=3, row=1, padx=5, pady=2)
-        self.monitor_interval_entry.insert(0, "1")
+        lbPriceValue = Label(frame, style="Pink.TLabel", text="0.00", foreground="blue")
+        lbPriceValue.grid(column=3, row=1, padx=5, pady=3)
+        setattr(self, f'lb{option_type.title()}CurrentPrice', lbPriceValue)
 
-        # 測試模式設定
-        test_frame = LabelFrame(frame, text="測試模式設定", style="Pink.TLabelframe")
-        test_frame.grid(column=0, row=2, padx=5, pady=5, sticky='w', columnspan=2)
+    def __create_strategy_widgets(self, parent):
+        """建立策略參數控件"""
+        frame = Frame(parent, style="Pink.TFrame")
+        frame.grid(column=0, row=0, padx=5, pady=5, sticky='w')
 
-        # 測試模式開關
-        self.test_mode_var = BooleanVar(value=True)
-        self.test_mode_check = Checkbutton(test_frame, text="啟用測試模式（不實際下單）",
-                                          variable=self.test_mode_var, style="Pink.TCheckbutton")
-        self.test_mode_check.grid(column=0, row=0, padx=5, pady=2, sticky='w', columnspan=2)
+        # 價差委託價
+        lbSpreadPrice = Label(frame, style="Pink.TLabel", text="價差委託價")
+        lbSpreadPrice.grid(column=0, row=0, pady=3)
 
-        # 模擬價格
-        Label(test_frame, text="模擬價格:", style="Pink.TLabel").grid(column=0, row=1, padx=5, pady=2, sticky='w')
-        self.test_price_entry = Entry(test_frame, width=10)
-        self.test_price_entry.grid(column=1, row=1, padx=5, pady=2)
-        self.test_price_entry.insert(0, "25500")
+        self.txtSpreadPrice = Entry(frame, width=10)
+        self.txtSpreadPrice.grid(column=0, row=1, padx=5, pady=3, sticky='w')
 
-        # 價格調整按鈕
-        Button(test_frame, text="價格+100", style="Pink.TButton",
-               command=lambda: self.__adjust_test_price(100)).grid(column=2, row=1, padx=5, pady=2)
-        Button(test_frame, text="價格-100", style="Pink.TButton",
-               command=lambda: self.__adjust_test_price(-100)).grid(column=3, row=1, padx=5, pady=2)
+        # 委託條件
+        lbTradeType = Label(frame, style="Pink.TLabel", text="委託條件")
+        lbTradeType.grid(column=1, row=0, pady=3)
 
-        # 實際報價選項
-        if QUOTE_AVAILABLE:
-            self.use_real_quote_var = BooleanVar(value=False)
-            self.real_quote_check = Checkbutton(test_frame, text="使用實際報價（需先連線報價系統）",
-                                              variable=self.use_real_quote_var, style="Pink.TCheckbutton")
-            self.real_quote_check.grid(column=0, row=2, padx=5, pady=2, sticky='w', columnspan=2)
+        self.boxTradeType = Combobox(frame, width=8, state='readonly')
+        self.boxTradeType['values'] = ['ROD', 'IOC', 'FOK']
+        self.boxTradeType.set('ROD')
+        self.boxTradeType.grid(column=1, row=1, padx=5, pady=3, sticky='w')
 
-            # 報價連線狀態
-            self.quote_status_label = Label(test_frame, text="報價狀態: 未連線", style="Pink.TLabel")
-            self.quote_status_label.grid(column=2, row=2, padx=5, pady=2, sticky='w', columnspan=2)
+        # 倉別
+        lbNewClose = Label(frame, style="Pink.TLabel", text="倉別")
+        lbNewClose.grid(column=2, row=0, pady=3)
 
-            # 手動抓取實際價格按鈕
-            Button(test_frame, text="抓取實際價格", style="Pink.TButton",
-                   command=self.__fetch_real_price).grid(column=0, row=3, padx=5, pady=2)
+        self.boxNewClose = Combobox(frame, width=8, state='readonly')
+        self.boxNewClose['values'] = ['新倉', '平倉', '自動']
+        self.boxNewClose.set('新倉')
+        self.boxNewClose.grid(column=2, row=1, padx=5, pady=3, sticky='w')
+
+        # 自動計算價差按鈕
+        btnCalcSpread = Button(frame, style="Pink.TButton", text="自動計算價差")
+        btnCalcSpread["command"] = self.__calculate_spread
+        btnCalcSpread.grid(column=3, row=1, padx=5, pady=3)
+
+    def __create_mit_widgets(self, parent):
+        """建立MIT委託控件"""
+        main_frame = Frame(parent, style="Pink.TFrame")
+        main_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+
+        # MIT委託1
+        mit1_frame = LabelFrame(main_frame, text="MIT委託1 (停損/停利)", style="Pink.TLabelframe")
+        mit1_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+
+        self.__create_single_mit_widget(mit1_frame, 1)
+
+        # MIT委託2
+        mit2_frame = LabelFrame(main_frame, text="MIT委託2 (停損/停利)", style="Pink.TLabelframe")
+        mit2_frame.grid(column=1, row=0, padx=5, pady=5, sticky='ew')
+
+        self.__create_single_mit_widget(mit2_frame, 2)
+
+    def __create_single_mit_widget(self, parent, mit_num):
+        """建立單個MIT委託控件"""
+        frame = Frame(parent, style="Pink.TFrame")
+        frame.grid(column=0, row=0, padx=5, pady=5, sticky='w')
+
+        # 啟用MIT委託
+        chkEnabled = Checkbutton(frame, text="啟用MIT委託", style="Pink.TCheckbutton")
+        chkEnabled.grid(column=0, row=0, columnspan=3, padx=5, pady=3, sticky='w')
+        setattr(self, f'chkMit{mit_num}Enabled', chkEnabled)
+
+        # 商品代碼
+        lbStockNo = Label(frame, style="Pink.TLabel", text="商品代碼")
+        lbStockNo.grid(column=0, row=1, pady=3)
+
+        txtStockNo = Entry(frame, width=12)
+        txtStockNo.grid(column=0, row=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}StockNo', txtStockNo)
+
+        # 買賣別
+        lbBuySell = Label(frame, style="Pink.TLabel", text="買賣別")
+        lbBuySell.grid(column=1, row=1, pady=3)
+
+        boxBuySell = Combobox(frame, width=8, state='readonly')
+        boxBuySell['values'] = ['買進', '賣出']
+        boxBuySell.set('買進' if mit_num == 1 else '賣出')
+        boxBuySell.grid(column=1, row=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'boxMit{mit_num}BuySell', boxBuySell)
+
+        # 委託量
+        lbQty = Label(frame, style="Pink.TLabel", text="委託量")
+        lbQty.grid(column=2, row=1, pady=3)
+
+        txtQty = Entry(frame, width=8)
+        txtQty.grid(column=2, row=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}Qty', txtQty)
+
+        # 觸發價
+        lbTriggerPrice = Label(frame, style="Pink.TLabel", text="觸發價")
+        lbTriggerPrice.grid(column=0, row=3, pady=3)
+
+        txtTriggerPrice = Entry(frame, width=10)
+        txtTriggerPrice.grid(column=0, row=4, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}TriggerPrice', txtTriggerPrice)
+
+        # 委託價
+        lbDealPrice = Label(frame, style="Pink.TLabel", text="委託價")
+        lbDealPrice.grid(column=1, row=3, pady=3)
+
+        txtDealPrice = Entry(frame, width=10)
+        txtDealPrice.grid(column=1, row=4, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}DealPrice', txtDealPrice)
+
+        # 委託條件
+        lbTradeType = Label(frame, style="Pink.TLabel", text="委託條件")
+        lbTradeType.grid(column=2, row=3, pady=3)
+
+        boxTradeType = Combobox(frame, width=8, state='readonly')
+        boxTradeType['values'] = ['IOC', 'FOK']
+        boxTradeType.set('IOC')
+        boxTradeType.grid(column=2, row=4, padx=5, pady=3, sticky='w')
+        setattr(self, f'boxMit{mit_num}TradeType', boxTradeType)
+
+        # MIT委託按鈕
+        btnSendMIT = Button(frame, style="Pink.TButton", text=f"送出MIT{mit_num}")
+        if mit_num == 1:
+            btnSendMIT["command"] = lambda: self.__SendMITOrder_Click(1)
         else:
-            # 報價模組不可用提示
-            Label(test_frame, text="注意：報價模組不可用，僅能使用模擬價格",
-                  style="Pink.TLabel", foreground="red").grid(column=0, row=2, padx=5, pady=2, sticky='w', columnspan=4)
+            btnSendMIT["command"] = lambda: self.__SendMITOrder_Click(2)
+        btnSendMIT.grid(column=0, row=5, padx=5, pady=5)
 
-    def __CreateControlSection(self, parent):
-        # 控制按鈕框架
-        control_group = LabelFrame(parent, text="策略控制", style="Pink.TLabelframe")
-        control_group.grid(column=0, row=1, padx=5, pady=5, sticky='ew')
+        # 取消MIT委託按鈕
+        btnCancelMIT = Button(frame, style="Pink.TButton", text=f"取消MIT{mit_num}")
+        if mit_num == 1:
+            btnCancelMIT["command"] = lambda: self.__CancelMITOrder_Click(1)
+        else:
+            btnCancelMIT["command"] = lambda: self.__CancelMITOrder_Click(2)
+        btnCancelMIT.grid(column=1, row=5, padx=5, pady=5)
 
-        button_frame = Frame(control_group, style="Pink.TFrame")
-        button_frame.grid(column=0, row=0, padx=5, pady=5)
+    def __create_auto_trading_widgets(self, parent):
+        """建立自動交易控件"""
+        main_frame = Frame(parent, style="Pink.TFrame")
+        main_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
 
-        # 計算策略按鈕
-        Button(button_frame, text="計算價差策略", style="Pink.TButton",
-               command=self.__calculate_strategy).grid(column=0, row=0, padx=5, pady=5)
+        # 啟用自動交易
+        self.chkAutoTrading = Checkbutton(main_frame, text="啟用自動交易", style="Pink.TCheckbutton")
+        self.chkAutoTrading.grid(column=0, row=0, columnspan=3, padx=5, pady=3, sticky='w')
 
-        # 下價差單按鈕
-        Button(button_frame, text="下價差單", style="Pink.TButton",
-               command=self.__send_spread_orders).grid(column=1, row=0, padx=5, pady=5)
+        # 商品代碼
+        lbAutoStockNo = Label(main_frame, style="Pink.TLabel", text="商品代碼")
+        lbAutoStockNo.grid(column=0, row=1, pady=3)
 
-        # 開始監控按鈕
-        self.start_monitor_btn = Button(button_frame, text="開始監控", style="Pink.TButton",
-                                       command=self.__start_monitoring)
-        self.start_monitor_btn.grid(column=2, row=0, padx=5, pady=5)
+        self.txtAutoStockNo = Entry(main_frame, width=12)
+        self.txtAutoStockNo.grid(column=0, row=2, padx=5, pady=3, sticky='w')
 
-        # 停止監控按鈕
-        self.stop_monitor_btn = Button(button_frame, text="停止監控", style="Pink.TButton",
-                                      command=self.__stop_monitoring_func, state='disabled')
-        self.stop_monitor_btn.grid(column=3, row=0, padx=5, pady=5)
+        # 買入價格
+        lbBuyPrice = Label(main_frame, style="Pink.TLabel", text="買入價格")
+        lbBuyPrice.grid(column=1, row=1, pady=3)
 
-        # 重置狀態按鈕
-        Button(button_frame, text="重置狀態", style="Pink.TButton",
-               command=self.__reset_status).grid(column=4, row=0, padx=5, pady=5)
+        self.txtAutoBuyPrice = Entry(main_frame, width=10)
+        self.txtAutoBuyPrice.grid(column=1, row=2, padx=5, pady=3, sticky='w')
 
-    def __CreateStatusSection(self, parent):
-        # 狀態顯示框架
-        status_group = LabelFrame(parent, text="策略狀態", style="Pink.TLabelframe")
-        status_group.grid(column=1, row=1, padx=5, pady=5, sticky='ew')
+        # 賣出價格
+        lbSellPrice = Label(main_frame, style="Pink.TLabel", text="賣出價格")
+        lbSellPrice.grid(column=2, row=1, pady=3)
 
-        # 狀態文字區域
-        self.status_text = Text(status_group, height=10, width=60)
-        self.status_text.grid(column=0, row=0, padx=5, pady=5)
+        self.txtAutoSellPrice = Entry(main_frame, width=10)
+        self.txtAutoSellPrice.grid(column=2, row=2, padx=5, pady=3, sticky='w')
 
-        # 滾動條
-        scrollbar = Scrollbar(status_group, orient="vertical", command=self.status_text.yview)
-        scrollbar.grid(column=1, row=0, sticky='ns')
-        self.status_text.configure(yscrollcommand=scrollbar.set)
+        # 交易數量
+        lbAutoQty = Label(main_frame, style="Pink.TLabel", text="交易數量")
+        lbAutoQty.grid(column=3, row=1, pady=3)
 
-    def __update_parameters(self):
-        """更新策略參數"""
+        self.txtAutoQty = Entry(main_frame, width=8)
+        self.txtAutoQty.grid(column=3, row=2, padx=5, pady=3, sticky='w')
+
+        # 當前價格顯示
+        lbCurrentAutoPrice = Label(main_frame, style="Pink.TLabel", text="當前價格")
+        lbCurrentAutoPrice.grid(column=4, row=1, pady=3)
+
+        self.lbCurrentAutoPrice = Label(main_frame, style="Pink.TLabel", text="0.00", foreground="blue", font=("Arial", 12, "bold"))
+        self.lbCurrentAutoPrice.grid(column=4, row=2, padx=5, pady=3)
+
+        # 當前部位顯示
+        lbPosition = Label(main_frame, style="Pink.TLabel", text="當前部位")
+        lbPosition.grid(column=5, row=1, pady=3)
+
+        self.lbPositionState = Label(main_frame, style="Pink.TLabel", text="空單", foreground="green")
+        self.lbPositionState.grid(column=5, row=2, padx=5, pady=3)
+
+        # 控制按鈕
+        btn_frame = Frame(main_frame, style="Pink.TFrame")
+        btn_frame.grid(column=0, row=3, columnspan=6, pady=10)
+
+        btnStartAuto = Button(btn_frame, style="Pink.TButton", text="啟動自動交易")
+        btnStartAuto["command"] = self.__start_auto_trading
+        btnStartAuto.grid(column=0, row=0, padx=5, pady=3)
+
+        btnStopAuto = Button(btn_frame, style="Pink.TButton", text="停止自動交易")
+        btnStopAuto["command"] = self.__stop_auto_trading
+        btnStopAuto.grid(column=1, row=0, padx=5, pady=3)
+
+        btnResetPosition = Button(btn_frame, style="Pink.TButton", text="重設部位")
+        btnResetPosition["command"] = self.__reset_position
+        btnResetPosition.grid(column=2, row=0, padx=5, pady=3)
+
+    def __create_order_buttons(self, parent):
+        """建立下單按鈕"""
+        # 同步下單
+        btnSendOrder = Button(parent, style="Pink.TButton", text="同步委託下單")
+        btnSendOrder["command"] = self.__btnSendOrder_Click
+        btnSendOrder.grid(column=0, row=0, padx=5, pady=3)
+
+        # 非同步下單
+        btnSendOrderAsync = Button(parent, style="Pink.TButton", text="非同步委託下單")
+        btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
+        btnSendOrderAsync.grid(column=1, row=0, padx=5, pady=3)
+
+        # 取消委託
+        btnCancelOrder = Button(parent, style="Pink.TButton", text="取消委託")
+        btnCancelOrder["command"] = self.__btnCancelOrder_Click
+        btnCancelOrder.grid(column=2, row=0, padx=5, pady=3)
+
+    def __create_monitor_widgets(self, parent):
+        """建立監控資訊控件"""
+        frame = Frame(parent, style="Pink.TFrame")
+        frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+
+        # 當前價差
+        lbCurrentSpread = Label(frame, style="Pink.TLabel", text="當前價差:")
+        lbCurrentSpread.grid(column=0, row=0, padx=5, pady=3)
+
+        self.lbSpreadValue = Label(frame, style="Pink.TLabel", text="0.00", foreground="red", font=("Arial", 12, "bold"))
+        self.lbSpreadValue.grid(column=1, row=0, padx=5, pady=3)
+
+        # 策略狀態
+        lbStatus = Label(frame, style="Pink.TLabel", text="策略狀態:")
+        lbStatus.grid(column=2, row=0, padx=5, pady=3)
+
+        self.lbStrategyStatus = Label(frame, style="Pink.TLabel", text="待機中", foreground="green")
+        self.lbStrategyStatus.grid(column=3, row=0, padx=5, pady=3)
+
+        # 損益試算
+        lbPnL = Label(frame, style="Pink.TLabel", text="預估損益:")
+        lbPnL.grid(column=4, row=0, padx=5, pady=3)
+
+        self.lbPnLValue = Label(frame, style="Pink.TLabel", text="0.00", foreground="black")
+        self.lbPnLValue.grid(column=5, row=0, padx=5, pady=3)
+
+    def __calculate_spread(self):
+        """自動計算價差委託價"""
         try:
-            self.__strategy_params['call_sell_strike'] = float(self.call_sell_strike_entry.get())
-            self.__strategy_params['call_sell_premium'] = float(self.call_sell_premium_entry.get())
-            self.__strategy_params['call_buy_strike'] = float(self.call_buy_strike_entry.get())
-            self.__strategy_params['call_buy_premium'] = float(self.call_buy_premium_entry.get())
-            self.__strategy_params['put_sell_strike'] = float(self.put_sell_strike_entry.get())
-            self.__strategy_params['put_sell_premium'] = float(self.put_sell_premium_entry.get())
-            self.__strategy_params['put_buy_strike'] = float(self.put_buy_strike_entry.get())
-            self.__strategy_params['put_buy_premium'] = float(self.put_buy_premium_entry.get())
-            self.__strategy_params['quantity'] = int(self.quantity_entry.get())
-            self.__strategy_params['future_symbol'] = self.future_symbol_entry.get()
-            self.__strategy_params['option_month'] = self.option_month_entry.get()
-            self.__strategy_params['monitor_interval'] = float(self.monitor_interval_entry.get())
-
-            # 更新測試模式設定
-            self.__test_mode = self.test_mode_var.get()
-            self.__test_current_price = float(self.test_price_entry.get())
-
-            # 更新實際報價設定
-            if QUOTE_AVAILABLE and hasattr(self, 'use_real_quote_var'):
-                self.__use_real_quote = self.use_real_quote_var.get()
-
-            return True
-        except ValueError as e:
-            messagebox.showerror("參數錯誤", f"請檢查參數格式: {e}")
-            return False
-
-    def __adjust_test_price(self, adjustment):
-        """調整測試價格"""
-        try:
-            current_price = float(self.test_price_entry.get())
-            new_price = current_price + adjustment
-            self.test_price_entry.delete(0, END)
-            self.test_price_entry.insert(0, str(new_price))
-            self.__test_current_price = new_price
-
-            if self.__order_status['monitoring']:
-                self.__log_message(f"模擬價格調整至: {new_price}")
-                # 立即檢查避險條件
-                self.__check_hedge_conditions(new_price)
+            if QUOTE_AVAILABLE:
+                # 使用即時報價計算
+                spread = self.current_call_price - self.current_put_price
+                self.txtSpreadPrice.delete(0, END)
+                self.txtSpreadPrice.insert(0, f"{spread:.2f}")
+                self.spread_value = spread
+                self.__update_spread_display()
+            else:
+                # 使用輸入的委託價計算
+                call_price = float(self.txtCallPrice.get() or "0")
+                put_price = float(self.txtPutPrice.get() or "0")
+                spread = call_price - put_price
+                self.txtSpreadPrice.delete(0, END)
+                self.txtSpreadPrice.insert(0, f"{spread:.2f}")
         except ValueError:
-            messagebox.showerror("錯誤", "請輸入有效的價格數值")
+            messagebox.showerror("錯誤", "請確認價格輸入格式正確!")
 
-    def __fetch_real_price(self):
-        """手動抓取實際價格"""
-        if not QUOTE_AVAILABLE:
-            messagebox.showerror("錯誤", "報價模組不可用")
-            return
+    def __start_quote_monitoring(self):
+        """啟動報價監控"""
+        def monitor_quotes():
+            while True:
+                try:
+                    call_stock_no = self.txtCallStockNo.get()
+                    put_stock_no = self.txtPutStockNo.get()
 
+                    if call_stock_no and put_stock_no and QUOTE_AVAILABLE:
+                        # 使用Quote模組獲取報價
+                        call_quote = QuoteModule.get_quote(call_stock_no)
+                        put_quote = QuoteModule.get_quote(put_stock_no)
+
+                        if call_quote and put_quote:
+                            self.current_call_price = float(call_quote.get('price', 0))
+                            self.current_put_price = float(put_quote.get('price', 0))
+
+                            # 更新GUI顯示
+                            self.lbCallCurrentPrice.config(text=f"{self.current_call_price:.2f}")
+                            self.lbPutCurrentPrice.config(text=f"{self.current_put_price:.2f}")
+
+                            # 更新價差
+                            self.spread_value = self.current_call_price - self.current_put_price
+                            self.__update_spread_display()
+
+                    time.sleep(1)  # 每秒更新一次
+                except Exception as e:
+                    print(f"報價監控錯誤: {e}")
+                    time.sleep(5)
+
+        # 在背景執行緒中執行監控
+        monitor_thread = threading.Thread(target=monitor_quotes, daemon=True)
+        monitor_thread.start()
+
+    def __update_spread_display(self):
+        """更新價差顯示"""
+        self.lbSpreadValue.config(text=f"{self.spread_value:.2f}")
+
+        # 根據價差變化調整顏色
+        if self.spread_value > 0:
+            self.lbSpreadValue.config(foreground="red")  # 正價差紅色
+        elif self.spread_value < 0:
+            self.lbSpreadValue.config(foreground="green")  # 負價差綠色
+        else:
+            self.lbSpreadValue.config(foreground="black")  # 零價差黑色
+
+    def __start_auto_trading(self):
+        """啟動自動交易"""
         try:
-            # 抓取小台期貨的實際價格
-            future_symbol = self.future_symbol_entry.get() or "MXF"
-            real_price = self.__get_real_future_price(future_symbol)
-
-            if real_price is not None:
-                # 更新模擬價格為實際價格
-                self.test_price_entry.delete(0, END)
-                self.test_price_entry.insert(0, str(real_price))
-                self.__test_current_price = real_price
-
-                self.__log_message(f"已抓取 {future_symbol} 實際價格: {real_price}")
-
-                # 更新報價狀態
-                if hasattr(self, 'quote_status_label'):
-                    self.quote_status_label.config(text=f"最新價格: {real_price}")
-            else:
-                self.__log_message(f"無法取得 {future_symbol} 的實際價格，請確認報價連線狀態")
-                if hasattr(self, 'quote_status_label'):
-                    self.quote_status_label.config(text="報價狀態: 取價失敗")
-
-        except Exception as e:
-            self.__log_message(f"抓取實際價格時發生錯誤: {e}")
-            messagebox.showerror("錯誤", f"抓取實際價格失敗: {e}")
-
-    def __get_real_future_price(self, symbol):
-        """取得期貨的實際價格"""
-        if not QUOTE_AVAILABLE:
-            return None
-
-        try:
-            # 使用Quote模組的API來取得即時價格
-            # 這裡需要根據群益API的實際實作來調整
-            pStock = sk.SKSTOCKLONG()
-
-            # 先嘗試透過商品代號取得股票索引
-            # 這可能需要先訂閱該商品的報價
-            market_no = 1  # 期貨市場編號
-
-            # 這裡的實作需要根據實際的群益API方法來調整
-            # 因為直接取得價格可能需要先訂閱報價
-
-            # 使用快取的價格（如果有的話）
-            current_time = time.time()
-            cache_key = f"{symbol}_{market_no}"
-
-            if cache_key in self.__real_price_cache:
-                cache_data = self.__real_price_cache[cache_key]
-                # 如果快取時間在30秒內，直接使用快取價格
-                if current_time - cache_data['time'] < 30:
-                    return cache_data['price']
-
-            # 實際的價格抓取邏輯
-            # 注意：這裡需要報價系統已經連線並訂閱了相關商品
-
-            # 模擬實際價格（在沒有真實連線時）
-            # 實際使用時這裡應該呼叫真正的API
-            simulated_price = 25500 + (hash(symbol) % 1000 - 500)  # 模擬波動
-
-            # 快取價格
-            self.__real_price_cache[cache_key] = {
-                'price': simulated_price,
-                'time': current_time
-            }
-
-            return simulated_price
-
-        except Exception as e:
-            self.__log_message(f"取得實際價格時發生錯誤: {e}")
-            return None
-
-    def __calculate_strategy(self):
-        """計算價差策略"""
-        if not self.__update_parameters():
-            return
-
-        # 計算買權價差獲利
-        call_spread_profit = (self.__strategy_params['call_sell_premium'] -
-                             self.__strategy_params['call_buy_premium']) * 50
-
-        # 計算賣權價差獲利
-        put_spread_profit = (self.__strategy_params['put_sell_premium'] -
-                            self.__strategy_params['put_buy_premium']) * 50
-
-        # 總獲利
-        total_profit = call_spread_profit + put_spread_profit
-
-        # 保證金需求
-        call_margin = (self.__strategy_params['call_buy_strike'] -
-                      self.__strategy_params['call_sell_strike']) * 50
-        put_margin = (self.__strategy_params['put_sell_strike'] -
-                     self.__strategy_params['put_buy_strike']) * 50
-        total_margin = call_margin + put_margin
-
-        # 避險條件
-        hedge_up = self.__strategy_params['call_sell_strike']
-        hedge_down = self.__strategy_params['put_sell_strike']
-        extra_profit_up = self.__strategy_params['call_buy_strike']
-        extra_profit_down = self.__strategy_params['put_buy_strike']
-
-        # 測試模式提示
-        mode_text = "【測試模式】" if self.__test_mode else "【實盤模式】"
-
-        # 價格資訊
-        price_info = ""
-        if self.__test_mode:
-            if self.__use_real_quote and QUOTE_AVAILABLE:
-                current_price = self.__get_current_future_price()
-                price_info = f"當前實際價格: {current_price} (即時抓取)"
-            else:
-                price_info = f"當前模擬價格: {self.__test_current_price}"
-
-        # 顯示結果
-        result = f"""
-=== 雙賣價差單策略分析 {mode_text} ===
-時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-買權價差單:
-- 賣買權: {self.__strategy_params['call_sell_strike']} (權利金: {self.__strategy_params['call_sell_premium']})
-- 買買權: {self.__strategy_params['call_buy_strike']} (權利金: {self.__strategy_params['call_buy_premium']})
-- 買權價差獲利: {call_spread_profit}元
-
-賣權價差單:
-- 賣賣權: {self.__strategy_params['put_sell_strike']} (權利金: {self.__strategy_params['put_sell_premium']})
-- 買賣權: {self.__strategy_params['put_buy_strike']} (權利金: {self.__strategy_params['put_buy_premium']})
-- 賣權價差獲利: {put_spread_profit}元
-
-總獲利: {total_profit}元
-總保證金: {total_margin}元
-
-避險條件:
-- 向上突破 {hedge_up} 時買入小台避險
-- 向下跌破 {hedge_down} 時賣出小台避險
-
-額外獲利機會:
-- 小台超過 {extra_profit_up} 時：每點額外獲利50元
-- 小台跌破 {extra_profit_down} 時：每點額外獲利50元
-
-選擇權代號格式:
-- 買權: TXO{self.__strategy_params['option_month']}C{int(self.__strategy_params['call_sell_strike'])}
-- 賣權: TXO{self.__strategy_params['option_month']}P{int(self.__strategy_params['put_sell_strike'])}
-
-{price_info}
-"""
-
-        self.__log_message(result)
-
-    def __generate_option_symbol(self, option_type, strike_price):
-        """生成選擇權代號"""
-        return f"TXO{self.__strategy_params['option_month']}{option_type}{int(strike_price)}"
-
-    def __send_spread_orders(self):
-        """發送價差單委託"""
-        if not self.__test_mode and self.__dOrder['boxAccount'] == '':
-            messagebox.showerror("錯誤", "請選擇期貨帳號！")
-            return
-
-        if not self.__update_parameters():
-            return
-
-        if self.__test_mode:
-            self.__log_message("【測試模式】模擬發送價差單委託")
-
-        try:
-            # 發送買權價差單
-            self.__send_call_spread()
-
-            # 發送賣權價差單
-            self.__send_put_spread()
-
-            mode_text = "模擬" if self.__test_mode else "實際"
-            self.__log_message(f"價差單委託已{mode_text}發送完成")
-
-        except Exception as e:
-            self.__log_message(f"發送價差單時發生錯誤: {e}")
-            if not self.__test_mode:
-                messagebox.showerror("錯誤", f"發送價差單失敗: {e}")
-
-    def __send_call_spread(self):
-        """發送買權價差單"""
-        # 賣買權
-        self.__send_option_order(
-            symbol=self.__generate_option_symbol('C', self.__strategy_params['call_sell_strike']),
-            buy_sell=1,  # 賣出
-            price=self.__strategy_params['call_sell_premium'],
-            quantity=self.__strategy_params['quantity']
-        )
-
-        # 買買權
-        self.__send_option_order(
-            symbol=self.__generate_option_symbol('C', self.__strategy_params['call_buy_strike']),
-            buy_sell=0,  # 買進
-            price=self.__strategy_params['call_buy_premium'],
-            quantity=self.__strategy_params['quantity']
-        )
-
-        self.__order_status['call_spread_order_sent'] = True
-        self.__log_message("買權價差單已發送")
-
-    def __send_put_spread(self):
-        """發送賣權價差單"""
-        # 賣賣權
-        self.__send_option_order(
-            symbol=self.__generate_option_symbol('P', self.__strategy_params['put_sell_strike']),
-            buy_sell=1,  # 賣出
-            price=self.__strategy_params['put_sell_premium'],
-            quantity=self.__strategy_params['quantity']
-        )
-
-        # 買賣權
-        self.__send_option_order(
-            symbol=self.__generate_option_symbol('P', self.__strategy_params['put_buy_strike']),
-            buy_sell=0,  # 買進
-            price=self.__strategy_params['put_buy_premium'],
-            quantity=self.__strategy_params['quantity']
-        )
-
-        self.__order_status['put_spread_order_sent'] = True
-        self.__log_message("賣權價差單已發送")
-
-    def __send_option_order(self, symbol, buy_sell, price, quantity):
-        """發送選擇權訂單"""
-        action = "賣出" if buy_sell == 1 else "買進"
-
-        if self.__test_mode:
-            # 測試模式：只記錄訊息，不實際下單
-            self.__log_message(f"【測試模式】{action} {symbol} 價格:{price} 數量:{quantity} - 模擬成功")
-            return
-
-        try:
-            # 實盤模式：實際發送訂單
-            oOrder = sk.FUTUREORDER()
-            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
-            oOrder.bstrStockNo = symbol
-            oOrder.sBuySell = buy_sell
-            oOrder.sTradeType = 0  # ROD
-            oOrder.bstrPrice = str(price)
-            oOrder.nQty = quantity
-            oOrder.sNewClose = 0  # 新倉
-            oOrder.sReserved = 0  # 盤中
-
-            # 發送訂單
-            message, m_nCode = skO.SendOptionOrder(Global.Global_IID, True, oOrder)
-
-            self.__log_message(f"【實盤模式】{action} {symbol} 價格:{price} 數量:{quantity} - 結果代碼:{m_nCode}")
-
-            if m_nCode != 0:
-                self.__oMsg.SendReturnMessage("Order", m_nCode, "SendOptionOrder", self.__dOrder['listInformation'])
-
-        except Exception as e:
-            self.__log_message(f"發送選擇權訂單失敗: {e}")
-            raise e
-
-    def __start_monitoring(self):
-        """開始價格監控"""
-        if not self.__test_mode and (not self.__order_status['call_spread_order_sent'] or not self.__order_status['put_spread_order_sent']):
-            if not messagebox.askyesno("確認", "尚未發送價差單，是否仍要開始監控？"):
+            if not self.__validate_auto_trading_inputs():
                 return
 
-        self.__stop_monitoring = False
-        self.__order_status['monitoring'] = True
+            if self.__dOrder['boxAccount'] == '':
+                messagebox.showerror("錯誤", '請選擇期貨帳號!')
+                return
 
-        # 啟動監控線程
-        self.__monitor_thread = threading.Thread(target=self.__price_monitor_loop, daemon=True)
-        self.__monitor_thread.start()
+            self.auto_trading_active = True
+            self.chkAutoTrading.state(['selected'])
+            messagebox.showinfo("自動交易", "自動交易已啟動")
+            self.lbStrategyStatus.config(text="自動交易中", foreground="blue")
 
-        self.start_monitor_btn.config(state='disabled')
-        self.stop_monitor_btn.config(state='normal')
-
-        mode_text = "【測試模式】模擬" if self.__test_mode else "【實盤模式】"
-        self.__log_message(f"{mode_text}開始監控期貨價格...")
-
-    def __stop_monitoring_func(self):
-        """停止價格監控"""
-        self.__stop_monitoring = True
-        self.__order_status['monitoring'] = False
-
-        self.start_monitor_btn.config(state='normal')
-        self.stop_monitor_btn.config(state='disabled')
-
-        self.__log_message("停止監控期貨價格")
-
-    def __price_monitor_loop(self):
-        """價格監控循環"""
-        while not self.__stop_monitoring:
-            try:
-                # 這裡應該獲取即時期貨價格
-                # 由於沒有直接的報價API，這裡用模擬方式
-                # 實際使用時需要整合報價模組
-
-                current_price = self.__get_current_future_price()
-                if current_price is None:
-                    time.sleep(self.__strategy_params['monitor_interval'])
-                    continue
-
-                # 檢查避險條件
-                self.__check_hedge_conditions(current_price)
-
-                time.sleep(self.__strategy_params['monitor_interval'])
-
-            except Exception as e:
-                self.__log_message(f"監控過程中發生錯誤: {e}")
-                time.sleep(5)  # 錯誤後等待5秒再繼續
-
-    def __get_current_future_price(self):
-        """獲取當前期貨價格"""
-        if self.__test_mode:
-            if self.__use_real_quote and QUOTE_AVAILABLE:
-                # 測試模式但使用實際報價
-                future_symbol = self.__strategy_params.get('future_symbol', 'MXF')
-                real_price = self.__get_real_future_price(future_symbol)
-
-                if real_price is not None:
-                    # 同時更新UI顯示的模擬價格
-                    self.test_price_entry.delete(0, END)
-                    self.test_price_entry.insert(0, str(real_price))
-                    self.__test_current_price = real_price
-                    return real_price
-                else:
-                    # 如果取不到實際價格，fallback到模擬價格
-                    self.__log_message("無法取得實際價格，使用模擬價格")
-                    return self.__test_current_price
-            else:
-                # 純模擬模式
-                return self.__test_current_price
-        else:
-            # 實盤模式：獲取即時價格
-            future_symbol = self.__strategy_params.get('future_symbol', 'MXF')
-            real_price = self.__get_real_future_price(future_symbol)
-
-            if real_price is not None:
-                return real_price
-            else:
-                self.__log_message("實盤模式無法獲取即時價格，監控暫停")
-                return None
-
-    def __check_hedge_conditions(self, current_price):
-        """檢查避險條件"""
-        # 向上突破 - 買入小台避險
-        if (current_price > self.__strategy_params['call_sell_strike'] and
-            not self.__order_status['hedge_long_sent']):
-            self.__send_hedge_order(True)  # 買入
-            self.__order_status['hedge_long_sent'] = True
-            self.__log_message(f"價格突破{self.__strategy_params['call_sell_strike']}，執行向上避險")
-
-        # 向下跌破 - 賣出小台避險
-        if (current_price < self.__strategy_params['put_sell_strike'] and
-            not self.__order_status['hedge_short_sent']):
-            self.__send_hedge_order(False)  # 賣出
-            self.__order_status['hedge_short_sent'] = True
-            self.__log_message(f"價格跌破{self.__strategy_params['put_sell_strike']}，執行向下避險")
-
-    def __send_hedge_order(self, is_buy):
-        """發送避險訂單"""
-        action = "買進" if is_buy else "賣出"
-
-        if self.__test_mode:
-            # 測試模式：只記錄訊息，不實際下單
-            self.__log_message(f"【測試模式】避險訂單: {action} {self.__strategy_params['future_symbol']} - 模擬成功")
-            return
-
-        try:
-            # 實盤模式：實際發送訂單
-            oOrder = sk.FUTUREORDER()
-            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
-            oOrder.bstrStockNo = self.__strategy_params['future_symbol']
-            oOrder.sBuySell = 0 if is_buy else 1  # 0=買進, 1=賣出
-            oOrder.sTradeType = 0  # ROD
-            oOrder.bstrPrice = "M"  # 市價
-            oOrder.nQty = self.__strategy_params['quantity']
-            oOrder.sNewClose = 0  # 新倉
-            oOrder.sReserved = 0  # 盤中
-
-            # 發送訂單
-            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, True, oOrder)
-
-            self.__log_message(f"【實盤模式】避險訂單: {action} {self.__strategy_params['future_symbol']} - 結果代碼:{m_nCode}")
-
-            if m_nCode != 0:
-                self.__oMsg.SendReturnMessage("Order", m_nCode, "SendFutureOrder", self.__dOrder['listInformation'])
+            # 啟動自動交易監控
+            self.__start_auto_trading_monitor()
 
         except Exception as e:
-            self.__log_message(f"發送避險訂單失敗: {e}")
+            messagebox.showerror("錯誤", f"啟動自動交易失敗: {str(e)}")
 
-    def __reset_status(self):
-        """重置狀態"""
-        # 先停止監控
-        if self.__order_status['monitoring']:
-            self.__stop_monitoring_func()
+    def __stop_auto_trading(self):
+        """停止自動交易"""
+        self.auto_trading_active = False
+        self.chkAutoTrading.state(['!selected'])
+        messagebox.showinfo("自動交易", "自動交易已停止")
+        self.lbStrategyStatus.config(text="待機中", foreground="green")
 
-        # 重置所有狀態
-        self.__order_status = {
-            'call_spread_order_sent': False,
-            'put_spread_order_sent': False,
-            'hedge_long_sent': False,
-            'hedge_short_sent': False,
-            'monitoring': False
+    def __reset_position(self):
+        """重設部位"""
+        self.position_state = 0
+        self.lbPositionState.config(text="空單", foreground="green")
+        messagebox.showinfo("重設部位", "部位已重設為空單")
+
+    def __validate_auto_trading_inputs(self):
+        """驗證自動交易輸入"""
+        try:
+            if not self.txtAutoStockNo.get():
+                messagebox.showerror("錯誤", "請輸入自動交易商品代碼!")
+                return False
+
+            if not self.txtAutoBuyPrice.get():
+                messagebox.showerror("錯誤", "請輸入買入價格!")
+                return False
+
+            if not self.txtAutoSellPrice.get():
+                messagebox.showerror("錯誤", "請輸入賣出價格!")
+                return False
+
+            if not self.txtAutoQty.get():
+                messagebox.showerror("錯誤", "請輸入交易數量!")
+                return False
+
+            # 驗證數值格式
+            buy_price = float(self.txtAutoBuyPrice.get())
+            sell_price = float(self.txtAutoSellPrice.get())
+            qty = int(self.txtAutoQty.get())
+
+            if buy_price >= sell_price:
+                messagebox.showerror("錯誤", "買入價格必須小於賣出價格!")
+                return False
+
+            if qty <= 0:
+                messagebox.showerror("錯誤", "交易數量必須大於0!")
+                return False
+
+            return True
+
+        except ValueError:
+            messagebox.showerror("錯誤", "價格或數量格式錯誤!")
+            return False
+
+    def __start_auto_trading_monitor(self):
+        """啟動自動交易監控"""
+        def auto_trading_monitor():
+            while self.auto_trading_active:
+                try:
+                    stock_no = self.txtAutoStockNo.get()
+
+                    if stock_no and QUOTE_AVAILABLE:
+                        # 獲取當前價格
+                        quote = QuoteModule.get_quote(stock_no)
+                        if quote:
+                            current_price = float(quote.get('price', 0))
+                            self.current_auto_price = current_price
+
+                            # 更新UI顯示
+                            self.lbCurrentAutoPrice.config(text=f"{current_price:.2f}")
+
+                            # 執行自動交易邏輯
+                            self.__execute_auto_trading_logic(current_price)
+
+                    time.sleep(1)  # 每秒檢查一次
+
+                except Exception as e:
+                    print(f"自動交易監控錯誤: {e}")
+                    time.sleep(5)
+
+        # 在背景執行緒中執行監控
+        auto_monitor_thread = threading.Thread(target=auto_trading_monitor, daemon=True)
+        auto_monitor_thread.start()
+
+    def __execute_auto_trading_logic(self, current_price):
+        """執行自動交易邏輯"""
+        try:
+            with self.auto_trade_lock:  # 使用鎖防止重複下單
+                buy_price = float(self.txtAutoBuyPrice.get())
+                sell_price = float(self.txtAutoSellPrice.get())
+
+                # 當前為空單且價格等於買入價格時，執行買入
+                if self.position_state == 0 and abs(current_price - buy_price) < 0.01:
+                    if self.__execute_auto_buy():
+                        self.position_state = 1
+                        self.lbPositionState.config(text="多單", foreground="red")
+                        print(f"自動買入執行 - 價格: {current_price}")
+
+                # 當前為多單且價格等於賣出價格時，執行賣出
+                elif self.position_state == 1 and abs(current_price - sell_price) < 0.01:
+                    if self.__execute_auto_sell():
+                        self.position_state = 0
+                        self.lbPositionState.config(text="空單", foreground="green")
+                        print(f"自動賣出執行 - 價格: {current_price}")
+
+        except Exception as e:
+            print(f"自動交易邏輯錯誤: {e}")
+
+    def __execute_auto_buy(self):
+        """執行自動買入"""
+        try:
+            # 建立委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # 填入商品代號
+            oOrder.bstrStockNo = self.txtAutoStockNo.get()
+
+            # 買進
+            oOrder.sBuySell = 0
+
+            # 委託條件 (IOC)
+            oOrder.sTradeType = 1
+
+            # 新倉
+            oOrder.sNewClose = 0
+
+            # 非當沖
+            oOrder.sDayTrade = 0
+
+            # 委託價 (市價單)
+            oOrder.bstrPrice = "M"
+
+            # 委託數量
+            oOrder.nQty = int(self.txtAutoQty.get())
+
+            # 發送委託單
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, True, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"自動買入委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                return True
+            else:
+                print(f"自動買入委託失敗，錯誤代碼: {m_nCode}")
+                return False
+
+        except Exception as e:
+            print(f"自動買入錯誤: {e}")
+            return False
+
+    def __execute_auto_sell(self):
+        """執行自動賣出"""
+        try:
+            # 建立委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # 填入商品代號
+            oOrder.bstrStockNo = self.txtAutoStockNo.get()
+
+            # 賣出
+            oOrder.sBuySell = 1
+
+            # 委託條件 (IOC)
+            oOrder.sTradeType = 1
+
+            # 平倉
+            oOrder.sNewClose = 1
+
+            # 非當沖
+            oOrder.sDayTrade = 0
+
+            # 委託價 (市價單)
+            oOrder.bstrPrice = "M"
+
+            # 委託數量
+            oOrder.nQty = int(self.txtAutoQty.get())
+
+            # 發送委託單
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, True, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"自動賣出委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                return True
+            else:
+                print(f"自動賣出委託失敗，錯誤代碼: {m_nCode}")
+                return False
+
+        except Exception as e:
+            print(f"自動賣出錯誤: {e}")
+            return False
+
+    def __btnSendOrder_Click(self):
+        """同步下單按鈕點擊事件"""
+        if self.__dOrder['boxAccount'] == '':
+            messagebox.showerror("錯誤", '請選擇期貨帳號!')
+        else:
+            self.__SendDuplexOrder(False)
+
+    def __btnSendOrderAsync_Click(self):
+        """非同步下單按鈕點擊事件"""
+        if self.__dOrder['boxAccount'] == '':
+            messagebox.showerror("錯誤", '請選擇期貨帳號!')
+        else:
+            self.__SendDuplexOrder(True)
+
+    def __btnCancelOrder_Click(self):
+        """取消委託按鈕點擊事件"""
+        messagebox.showinfo("取消委託", "取消委託功能待實作")
+
+    def __SendDuplexOrder(self, bAsyncOrder):
+        """執行雙賣價差複式委託下單"""
+        try:
+            # 驗證輸入
+            if not self.__validate_inputs():
+                return
+
+            # 更新策略狀態
+            self.lbStrategyStatus.config(text="下單中...", foreground="orange")
+
+            # 準備委託條件參數
+            sTradeType = self.__get_trade_type()
+            sNewClose = self.__get_new_close()
+
+            # 建立複式委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # Call選擇權 (第一腳 - 賣出)
+            oOrder.bstrStockNo = self.txtCallStockNo.get()
+            oOrder.sBuySell = 1  # 賣出
+
+            # Put選擇權 (第二腳 - 賣出)
+            oOrder.bstrStockNo2 = self.txtPutStockNo.get()
+            oOrder.sBuySell2 = 1  # 賣出
+
+            # 委託條件
+            oOrder.sTradeType = sTradeType
+
+            # 委託價格 (使用價差委託價)
+            oOrder.bstrPrice = self.txtSpreadPrice.get()
+
+            # 委託數量 (使用Call的數量，假設Call和Put數量相同)
+            oOrder.nQty = int(self.txtCallQty.get())
+
+            # 倉別
+            oOrder.sNewClose = sNewClose
+
+            # 發送複式委託單
+            message, m_nCode = skO.SendDuplexOrder(Global.Global_IID, bAsyncOrder, oOrder)
+
+            # 處理回傳結果
+            self.__oMsg.SendReturnMessage("DoubleSellSpread", m_nCode, "SendDuplexOrder", self.__dOrder['listInformation'])
+
+            if bAsyncOrder == False and m_nCode == 0:
+                strMsg = f"雙賣價差策略委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                self.lbStrategyStatus.config(text="委託成功", foreground="green")
+                messagebox.showinfo("下單成功", strMsg)
+            elif m_nCode != 0:
+                self.lbStrategyStatus.config(text="委託失敗", foreground="red")
+                messagebox.showerror("下單失敗", f"錯誤代碼: {m_nCode}")
+            else:
+                self.lbStrategyStatus.config(text="委託送出", foreground="blue")
+
+        except Exception as e:
+            self.lbStrategyStatus.config(text="下單錯誤", foreground="red")
+            messagebox.showerror("錯誤", f"下單發生錯誤: {str(e)}")
+
+    def __validate_inputs(self):
+        """驗證輸入資料"""
+        try:
+            # 檢查商品代碼
+            if not self.txtCallStockNo.get():
+                messagebox.showerror("錯誤", "請輸入Call選擇權商品代碼!")
+                return False
+
+            if not self.txtPutStockNo.get():
+                messagebox.showerror("錯誤", "請輸入Put選擇權商品代碼!")
+                return False
+
+            # 檢查委託價
+            if not self.txtCallPrice.get():
+                messagebox.showerror("錯誤", "請輸入Call選擇權委託價!")
+                return False
+
+            if not self.txtPutPrice.get():
+                messagebox.showerror("錯誤", "請輸入Put選擇權委託價!")
+                return False
+
+            if not self.txtSpreadPrice.get():
+                messagebox.showerror("錯誤", "請輸入價差委託價!")
+                return False
+
+            # 檢查委託量
+            if not self.txtCallQty.get():
+                messagebox.showerror("錯誤", "請輸入Call選擇權委託量!")
+                return False
+
+            if not self.txtPutQty.get():
+                messagebox.showerror("錯誤", "請輸入Put選擇權委託量!")
+                return False
+
+            # 驗證數值格式
+            float(self.txtCallPrice.get())
+            float(self.txtPutPrice.get())
+            float(self.txtSpreadPrice.get())
+            int(self.txtCallQty.get())
+            int(self.txtPutQty.get())
+
+            # 檢查委託量是否相同 (雙賣策略要求)
+            if self.txtCallQty.get() != self.txtPutQty.get():
+                messagebox.showwarning("警告", "雙賣策略建議Call和Put委託量相同!")
+
+            return True
+
+        except ValueError:
+            messagebox.showerror("錯誤", "請確認數值輸入格式正確!")
+            return False
+
+    def __get_trade_type(self):
+        """取得委託條件代碼"""
+        trade_type_map = {
+            "ROD": 0,
+            "IOC": 1,
+            "FOK": 2
         }
+        return trade_type_map.get(self.boxTradeType.get(), 0)
 
-        self.__log_message("狀態已重置")
+    def __get_new_close(self):
+        """取得倉別代碼"""
+        new_close_map = {
+            "新倉": 0,
+            "平倉": 1,
+            "自動": 2
+        }
+        return new_close_map.get(self.boxNewClose.get(), 0)
 
-    def __log_message(self, message):
-        """記錄訊息到狀態顯示區"""
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        full_message = f"[{timestamp}] {message}\n"
+    # MIT委託相關方法
+    def __SendMITOrder_Click(self, mit_num):
+        """MIT委託下單按鈕點擊事件"""
+        if not self.__validate_mit_inputs(mit_num):
+            return
+        if self.__dOrder['boxAccount'] == '':
+            messagebox.showerror("錯誤", '請選擇期貨帳號!')
+        else:
+            self.__SendMITOrder(mit_num, False)
 
-        self.status_text.insert(END, full_message)
-        self.status_text.see(END)
+    def __CancelMITOrder_Click(self, mit_num):
+        """取消MIT委託按鈕點擊事件"""
+        messagebox.showinfo("取消MIT委託", f"取消MIT委託{mit_num}功能待實作")
 
-        # 也記錄到主要訊息區
-        if self.__dOrder['listInformation']:
-            self.__oMsg.WriteMessage(f"雙賣策略: {message}", self.__dOrder['listInformation'])
+    def __validate_mit_inputs(self, mit_num):
+        """驗證MIT委託輸入資料"""
+        try:
+            # 檢查是否啟用
+            chk_enabled = getattr(self, f'chkMit{mit_num}Enabled')
+            if not chk_enabled.instate(['selected']):
+                messagebox.showwarning("提醒", f"MIT委託{mit_num}未啟用!")
+                return False
 
-    def get_test_mode(self):
-        """獲取測試模式狀態"""
-        return self.__test_mode
+            # 檢查商品代碼
+            stock_no = getattr(self, f'txtMit{mit_num}StockNo').get()
+            if not stock_no:
+                messagebox.showerror("錯誤", f"請輸入MIT委託{mit_num}商品代碼!")
+                return False
 
-    def set_test_mode(self, test_mode):
-        """設置測試模式"""
-        self.__test_mode = test_mode
-        self.test_mode_var.set(test_mode)
+            # 檢查觸發價
+            trigger_price = getattr(self, f'txtMit{mit_num}TriggerPrice').get()
+            if not trigger_price:
+                messagebox.showerror("錯誤", f"請輸入MIT委託{mit_num}觸發價!")
+                return False
+
+            # 檢查委託價
+            deal_price = getattr(self, f'txtMit{mit_num}DealPrice').get()
+            if not deal_price:
+                messagebox.showerror("錯誤", f"請輸入MIT委託{mit_num}委託價!")
+                return False
+
+            # 檢查委託量
+            qty = getattr(self, f'txtMit{mit_num}Qty').get()
+            if not qty:
+                messagebox.showerror("錯誤", f"請輸入MIT委託{mit_num}委託量!")
+                return False
+
+            # 驗證數值格式
+            float(trigger_price)
+            float(deal_price)
+            int(qty)
+
+            return True
+
+        except ValueError:
+            messagebox.showerror("錯誤", f"MIT委託{mit_num}數值輸入格式錯誤!")
+            return False
+
+    def __SendMITOrder(self, mit_num, bAsyncOrder):
+        """執行MIT委託下單"""
+        try:
+            # 更新策略狀態
+            self.lbStrategyStatus.config(text=f"MIT{mit_num}下單中...", foreground="orange")
+
+            # 取得買賣別
+            buy_sell_text = getattr(self, f'boxMit{mit_num}BuySell').get()
+            sBuySell = 0 if buy_sell_text == "買進" else 1
+
+            # 取得委託條件
+            trade_type_text = getattr(self, f'boxMit{mit_num}TradeType').get()
+            sTradeType = 1 if trade_type_text == "IOC" else 2  # IOC=1, FOK=2
+
+            # 建立MIT委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # 填入商品代號
+            oOrder.bstrStockNo = getattr(self, f'txtMit{mit_num}StockNo').get()
+
+            # 買賣別
+            oOrder.sBuySell = sBuySell
+
+            # 委託條件
+            oOrder.sTradeType = sTradeType
+
+            # 新倉(MIT委託通常是新倉)
+            oOrder.sNewClose = 0
+
+            # 非當沖
+            oOrder.sDayTrade = 0
+
+            # 委託價
+            oOrder.bstrDealPrice = getattr(self, f'txtMit{mit_num}DealPrice').get()
+
+            # 委託數量
+            oOrder.nQty = int(getattr(self, f'txtMit{mit_num}Qty').get())
+
+            # 觸發價
+            oOrder.bstrTrigger = getattr(self, f'txtMit{mit_num}TriggerPrice').get()
+
+            # 發送MIT委託單
+            message, m_nCode = skO.SendFutureMITOrder(Global.Global_IID, bAsyncOrder, oOrder)
+
+            # 處理回傳結果
+            self.__oMsg.SendReturnMessage(f"MIT{mit_num}Order", m_nCode, "SendFutureMITOrder", self.__dOrder['listInformation'])
+
+            if bAsyncOrder == False and m_nCode == 0:
+                strMsg = f"MIT{mit_num}委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                self.lbStrategyStatus.config(text=f"MIT{mit_num}委託成功", foreground="green")
+                messagebox.showinfo("MIT下單成功", strMsg)
+            elif m_nCode != 0:
+                self.lbStrategyStatus.config(text=f"MIT{mit_num}委託失敗", foreground="red")
+                messagebox.showerror("MIT下單失敗", f"錯誤代碼: {m_nCode}")
+            else:
+                self.lbStrategyStatus.config(text=f"MIT{mit_num}委託送出", foreground="blue")
+
+        except Exception as e:
+            self.lbStrategyStatus.config(text=f"MIT{mit_num}下單錯誤", foreground="red")
+            messagebox.showerror("錯誤", f"MIT{mit_num}下單發生錯誤: {str(e)}")
+
+
+# 建立主要的策略視窗類別
+class DoubleSellSpreadStrategyWindow:
+    def __init__(self, information=None):
+        self.root = Tk()
+        self.root.title("雙賣價差策略交易系統")
+        self.root.geometry("800x600")
+
+        # 建立策略物件
+        self.strategy = DoubleSellSpreadStrategy(information)
+        self.strategy.pack(fill=BOTH, expand=True)
+
+        # 建立選單
+        self.__create_menu()
+
+    def __create_menu(self):
+        """建立選單列"""
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+
+        # 檔案選單
+        file_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="檔案", menu=file_menu)
+        file_menu.add_command(label="載入策略參數", command=self.__load_strategy)
+        file_menu.add_command(label="儲存策略參數", command=self.__save_strategy)
+        file_menu.add_separator()
+        file_menu.add_command(label="結束", command=self.root.quit)
+
+        # 工具選單
+        tools_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="工具", menu=tools_menu)
+        tools_menu.add_command(label="策略回測", command=self.__backtest)
+        tools_menu.add_command(label="風險評估", command=self.__risk_assessment)
+
+        # 說明選單
+        help_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="說明", menu=help_menu)
+        help_menu.add_command(label="策略說明", command=self.__show_strategy_help)
+        help_menu.add_command(label="關於", command=self.__show_about)
+
+    def __load_strategy(self):
+        """載入策略參數"""
+        messagebox.showinfo("載入策略", "載入策略參數功能待實作")
+
+    def __save_strategy(self):
+        """儲存策略參數"""
+        messagebox.showinfo("儲存策略", "儲存策略參數功能待實作")
+
+    def __backtest(self):
+        """策略回測"""
+        messagebox.showinfo("策略回測", "策略回測功能待實作")
+
+    def __risk_assessment(self):
+        """風險評估"""
+        messagebox.showinfo("風險評估", "風險評估功能待實作")
+
+    def __show_strategy_help(self):
+        """顯示策略說明"""
+        help_text = """
+雙賣價差策略說明:
+
+1. 策略概念:
+   - 同時賣出Call選擇權和Put選擇權
+   - 收取權利金為主要收益來源
+   - 適合預期標的物價格波動不大的情況
+
+2. 風險特性:
+   - 有限收益: 最大收益為收取的權利金
+   - 無限風險: 標的物大幅上漲或下跌時虧損無上限
+   - 需要足夠的保證金
+
+3. 使用建議:
+   - 適合有經驗的投資者
+   - 需要密切監控部位
+   - 建議設定停損點
+
+4. MIT委託功能:
+   - MIT委託1: 通常設定為停損單，當價格觸及設定價位時自動平倉
+   - MIT委託2: 通常設定為停利單，當價格達到獲利目標時自動平倉
+   - 可分別設定不同的期貨商品代碼、觸發價、委託價
+   - 支援買進/賣出雙向操作，靈活管理風險
+
+5. 自動交易功能:
+   - 設定買入價格和賣出價格進行自動交易
+   - 當前價格等於買入價格時自動買進(建立多單)
+   - 當前價格等於賣出價格時自動賣出(平倉回到空單)
+   - 具備部位管理功能，防止重複下單
+   - 使用多執行緒監控，即時響應價格變化
+   - 支援市價單快速成交
+        """
+        messagebox.showinfo("策略說明", help_text)
+
+    def __show_about(self):
+        """關於資訊"""
+        messagebox.showinfo("關於", "雙賣價差策略交易系統 v1.0\n基於群益API開發")
+
+    def set_account(self, account):
+        """設定交易帳號"""
+        self.strategy.SetAccount(account)
+
+    def run(self):
+        """執行主迴圈"""
+        self.root.mainloop()
+
+
+# 測試函數
+def test_double_sell_spread():
+    """測試雙賣價差策略"""
+    try:
+        # 建立測試視窗
+        app = DoubleSellSpreadStrategyWindow()
+
+        # 設定測試帳號 (實際使用時需要真實帳號)
+        # app.set_account("YOUR_ACCOUNT_HERE")
+
+        # 執行
+        app.run()
+
+    except Exception as e:
+        print(f"測試錯誤: {e}")
+
+
+# 主程式進入點
+if __name__ == "__main__":
+    test_double_sell_spread()
