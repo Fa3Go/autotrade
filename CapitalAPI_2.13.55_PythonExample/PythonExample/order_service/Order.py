@@ -287,9 +287,10 @@ class __FrameOrder(Frame):
             self.__obj['future'].SetAccount(self.boxFutureAccount.get())
             self.__obj['option'].SetAccount(self.boxFutureAccount.get())
             self.__obj['double_sell_spread'].SetAccount(self.boxFutureAccount.get())
-            self.__obj['stop_loss'].SetAccount(self.boxFutureAccount.get())
+            # self.__obj['stop_loss'].SetAccount(self.boxFutureAccount.get())  # stop_loss已被註解
             #self.__obj['withdraw'].SetAccount(self.boxFutureAccount.get())
             self.__obj['mit'].SetAccount(self.boxFutureAccount.get())
+            self.__obj['stock_smart'].SetAccount(self.boxFutureAccount.get())
 
         # 期貨
         lbFutureAccount = Label(frame, style="Pink.TLabel", text = "期貨帳號")
