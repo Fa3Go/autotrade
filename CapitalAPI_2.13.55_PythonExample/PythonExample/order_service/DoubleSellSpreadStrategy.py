@@ -282,12 +282,15 @@ class DoubleSellSpreadStrategy(Frame):
         txtStockNo.grid(column=0, row=2, padx=5, pady=3, sticky='w')
         setattr(self, f'txtMit{mit_num}StockNo', txtStockNo)
 
-        # 買賣別
+        # 買賣別 (借用OptionOrder.py的完整選項)
         lbBuySell = Label(frame, style="Pink.TLabel", text="買賣別")
         lbBuySell.grid(column=1, row=1, pady=3)
 
         boxBuySell = Combobox(frame, width=8, state='readonly')
-        boxBuySell['values'] = ['買進', '賣出']
+        try:
+            boxBuySell['values'] = Config.BUYSELLSET
+        except:
+            boxBuySell['values'] = ['買進', '賣出']
         boxBuySell.set('買進' if mit_num == 1 else '賣出')
         boxBuySell.grid(column=1, row=2, padx=5, pady=3, sticky='w')
         setattr(self, f'boxMit{mit_num}BuySell', boxBuySell)
@@ -752,7 +755,7 @@ class DoubleSellSpreadStrategy(Frame):
             # 更新策略狀態
             self.lbStrategyStatus.config(text="下單中...", foreground="orange")
 
-            # 準備委託條件參數
+            # 準備委託條件參數 (使用新的映射函數)
             sTradeType = self.__get_trade_type()
             sNewClose = self.__get_new_close()
 
@@ -763,29 +766,34 @@ class DoubleSellSpreadStrategy(Frame):
             oOrder.bstrFullAccount = self.__dOrder['boxAccount']
 
             # Call選擇權 (第一腳 - 賣出)
-            oOrder.bstrStockNo = self.txtCallStockNo.get()
-            oOrder.sBuySell = 1  # 賣出
+            oOrder.bstrStockNo = self.txtCallStockNo.get().strip()
+            oOrder.sBuySell = 1  # 賣出 (雙賣策略)
 
             # Put選擇權 (第二腳 - 賣出)
-            oOrder.bstrStockNo2 = self.txtPutStockNo.get()
-            oOrder.sBuySell2 = 1  # 賣出
+            oOrder.bstrStockNo2 = self.txtPutStockNo.get().strip()
+            oOrder.sBuySell2 = 1  # 賣出 (雙賣策略)
 
             # 委託條件
             oOrder.sTradeType = sTradeType
 
             # 委託價格 (使用價差委託價)
-            oOrder.bstrPrice = self.txtSpreadPrice.get()
+            oOrder.bstrPrice = self.txtSpreadPrice.get().strip()
 
             # 委託數量 (使用Call的數量，假設Call和Put數量相同)
-            oOrder.nQty = int(self.txtCallQty.get())
+            oOrder.nQty = int(self.txtCallQty.get().strip())
 
             # 倉別
             oOrder.sNewClose = sNewClose
 
+            # 設定盤別 (如果有的話)
+            if hasattr(self, 'boxCallReserved'):
+                call_reserved = self.__get_reserved_code(self.boxCallReserved.get())
+                oOrder.sReserved = call_reserved
+
             # 發送複式委託單
             message, m_nCode = skO.SendDuplexOrder(Global.Global_IID, bAsyncOrder, oOrder)
 
-            # 處理回傳結果
+            # 處理回傳結果 (借用OptionOrder.py的錯誤處理邏輯)
             self.__oMsg.SendReturnMessage("DoubleSellSpread", m_nCode, "SendDuplexOrder", self.__dOrder['listInformation'])
 
             if bAsyncOrder == False and m_nCode == 0:
@@ -793,65 +801,129 @@ class DoubleSellSpreadStrategy(Frame):
                 self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
                 self.lbStrategyStatus.config(text="委託成功", foreground="green")
                 messagebox.showinfo("下單成功", strMsg)
+                print(f"[SUCCESS] {strMsg}")
             elif m_nCode != 0:
+                error_msg = self.__get_error_message(m_nCode)
                 self.lbStrategyStatus.config(text="委託失敗", foreground="red")
-                messagebox.showerror("下單失敗", f"錯誤代碼: {m_nCode}")
+                full_error_msg = f"錯誤代碼: {m_nCode}\n錯誤訊息: {error_msg}"
+                messagebox.showerror("下單失敗", full_error_msg)
+                print(f"[ERROR] 下單失敗 - {full_error_msg}")
+                self.__oMsg.WriteMessage(f"雙賣價差策略委託失敗: {full_error_msg}", self.__dOrder['listInformation'])
             else:
                 self.lbStrategyStatus.config(text="委託送出", foreground="blue")
+                print("[INFO] 非同步委託已送出，等待回覆中...")
 
         except Exception as e:
             self.lbStrategyStatus.config(text="下單錯誤", foreground="red")
             messagebox.showerror("錯誤", f"下單發生錯誤: {str(e)}")
 
     def __validate_inputs(self):
-        """驗證輸入資料"""
+        """驗證輸入資料 (借用OptionOrder.py的驗證邏輯)"""
         try:
+            # 檢查帳號
+            if not self.__dOrder['boxAccount']:
+                messagebox.showerror("錯誤", "請選擇期貨帳號!")
+                return False
+
             # 檢查商品代碼
-            if not self.txtCallStockNo.get():
+            call_stock_no = self.txtCallStockNo.get().strip()
+            put_stock_no = self.txtPutStockNo.get().strip()
+
+            if not call_stock_no:
                 messagebox.showerror("錯誤", "請輸入Call選擇權商品代碼!")
                 return False
 
-            if not self.txtPutStockNo.get():
+            if not put_stock_no:
                 messagebox.showerror("錯誤", "請輸入Put選擇權商品代碼!")
                 return False
 
+            # 驗證商品代碼格式 (選擇權代碼通常包含字母和數字)
+            if len(call_stock_no) < 3 or len(put_stock_no) < 3:
+                messagebox.showerror("錯誤", "商品代碼格式不正確!")
+                return False
+
             # 檢查委託價
-            if not self.txtCallPrice.get():
+            call_price_str = self.txtCallPrice.get().strip()
+            put_price_str = self.txtPutPrice.get().strip()
+            spread_price_str = self.txtSpreadPrice.get().strip()
+
+            if not call_price_str:
                 messagebox.showerror("錯誤", "請輸入Call選擇權委託價!")
                 return False
 
-            if not self.txtPutPrice.get():
+            if not put_price_str:
                 messagebox.showerror("錯誤", "請輸入Put選擇權委託價!")
                 return False
 
-            if not self.txtSpreadPrice.get():
+            if not spread_price_str:
                 messagebox.showerror("錯誤", "請輸入價差委託價!")
                 return False
 
             # 檢查委託量
-            if not self.txtCallQty.get():
+            call_qty_str = self.txtCallQty.get().strip()
+            put_qty_str = self.txtPutQty.get().strip()
+
+            if not call_qty_str:
                 messagebox.showerror("錯誤", "請輸入Call選擇權委託量!")
                 return False
 
-            if not self.txtPutQty.get():
+            if not put_qty_str:
                 messagebox.showerror("錯誤", "請輸入Put選擇權委託量!")
                 return False
 
-            # 驗證數值格式
-            float(self.txtCallPrice.get())
-            float(self.txtPutPrice.get())
-            float(self.txtSpreadPrice.get())
-            int(self.txtCallQty.get())
-            int(self.txtPutQty.get())
+            # 驗證數值格式並檢查合理性
+            call_price = float(call_price_str)
+            put_price = float(put_price_str)
+            spread_price = float(spread_price_str)
+            call_qty = int(call_qty_str)
+            put_qty = int(put_qty_str)
+
+            # 檢查價格合理性
+            if call_price <= 0 or put_price <= 0:
+                messagebox.showerror("錯誤", "委託價必須大於0!")
+                return False
+
+            # 檢查數量合理性
+            if call_qty <= 0 or put_qty <= 0:
+                messagebox.showerror("錯誤", "委託量必須大於0!")
+                return False
+
+            if call_qty > 9999 or put_qty > 9999:
+                messagebox.showerror("錯誤", "委託量不能超過9999!")
+                return False
+
+            # 檢查委託條件選擇
+            if not self.boxTradeType.get():
+                messagebox.showerror("錯誤", "請選擇委託條件!")
+                return False
+
+            # 檢查倉別選擇
+            if not self.boxNewClose.get():
+                messagebox.showerror("錯誤", "請選擇倉別!")
+                return False
+
+            # 檢查Call和Put的盤別選擇
+            if hasattr(self, 'boxCallReserved') and not self.boxCallReserved.get():
+                messagebox.showerror("錯誤", "請選擇Call選擇權盤別!")
+                return False
+
+            if hasattr(self, 'boxPutReserved') and not self.boxPutReserved.get():
+                messagebox.showerror("錯誤", "請選擇Put選擇權盤別!")
+                return False
 
             # 檢查委託量是否相同 (雙賣策略要求)
-            if self.txtCallQty.get() != self.txtPutQty.get():
-                messagebox.showwarning("警告", "雙賣策略建議Call和Put委託量相同!")
+            if call_qty != put_qty:
+                result = messagebox.askyesno("警告", "雙賣策略建議Call和Put委託量相同!\n是否繼續下單?")
+                if not result:
+                    return False
 
             return True
 
-        except ValueError:
-            messagebox.showerror("錯誤", "請確認數值輸入格式正確!")
+        except ValueError as ve:
+            messagebox.showerror("錯誤", f"數值格式錯誤: {str(ve)}")
+            return False
+        except Exception as e:
+            messagebox.showerror("錯誤", f"輸入驗證失敗: {str(e)}")
             return False
 
     def __get_trade_type(self):
@@ -871,6 +943,47 @@ class DoubleSellSpreadStrategy(Frame):
             "自動": 2
         }
         return new_close_map.get(self.boxNewClose.get(), 0)
+
+    def __get_error_message(self, error_code):
+        """取得錯誤訊息 (借用OptionOrder.py的錯誤處理概念)"""
+        error_messages = {
+            0: "成功",
+            -1: "一般性錯誤",
+            -2: "帳號錯誤",
+            -3: "商品代碼錯誤",
+            -4: "買賣別錯誤",
+            -5: "委託條件錯誤",
+            -6: "委託價格錯誤",
+            -7: "委託數量錯誤",
+            -8: "倉別錯誤",
+            -9: "盤別錯誤",
+            -10: "帳號未登入",
+            -11: "權限不足",
+            -12: "餘額不足",
+            -13: "超過可委託量",
+            -14: "商品停止交易",
+            -15: "非交易時段",
+            -99: "未知錯誤"
+        }
+        return error_messages.get(error_code, f"錯誤代碼 {error_code}")
+
+    def __get_buy_sell_code(self, buy_sell_text):
+        """取得買賣別代碼 (借用OptionOrder.py的邏輯)"""
+        if buy_sell_text == "買進":
+            return 0
+        elif buy_sell_text == "賣出":
+            return 1
+        else:
+            return 0  # 預設買進
+
+    def __get_reserved_code(self, reserved_text):
+        """取得盤別代碼 (借用OptionOrder.py的邏輯)"""
+        if reserved_text == "盤中":
+            return 0
+        elif reserved_text == "T盤預約":
+            return 1
+        else:
+            return 0  # 預設盤中
 
     # MIT委託相關方法
     def __SendMITOrder_Click(self, mit_num):
@@ -936,11 +1049,11 @@ class DoubleSellSpreadStrategy(Frame):
             # 更新策略狀態
             self.lbStrategyStatus.config(text=f"MIT{mit_num}下單中...", foreground="orange")
 
-            # 取得買賣別
+            # 取得買賣別 (使用新的映射函數)
             buy_sell_text = getattr(self, f'boxMit{mit_num}BuySell').get()
-            sBuySell = 0 if buy_sell_text == "買進" else 1
+            sBuySell = self.__get_buy_sell_code(buy_sell_text)
 
-            # 取得委託條件
+            # 取得委託條件 (使用IOC=1, FOK=2的映射)
             trade_type_text = getattr(self, f'boxMit{mit_num}TradeType').get()
             sTradeType = 1 if trade_type_text == "IOC" else 2  # IOC=1, FOK=2
 
