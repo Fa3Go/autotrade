@@ -98,14 +98,7 @@ class DoubleSellSpreadStrategy(Frame):
             mit2_trigger_price='', # MIT委託2觸發價
             mit2_deal_price='',    # MIT委託2委託價
             mit2_qty='',          # MIT委託2數量
-            mit2_buy_sell='賣出',   # MIT委託2買賣別
-            # 自動交易參數
-            auto_trading_enabled=False,  # 自動交易啟用
-            auto_buy_price='',          # 自動買入價格
-            auto_sell_price='',         # 自動賣出價格
-            auto_trading_qty='',        # 自動交易數量
-            auto_stock_no='',           # 自動交易商品代碼
-            current_position=0          # 當前部位 (0:空單 1:多單)
+            mit2_buy_sell='賣出'   # MIT委託2買賣別
         )
 
         self.__CreateWidget()
@@ -115,11 +108,12 @@ class DoubleSellSpreadStrategy(Frame):
         self.current_put_price = 0.0
         self.spread_value = 0.0
 
-        # 自動交易相關
-        self.auto_trading_active = False
-        self.current_auto_price = 0.0
-        self.position_state = 0  # 0:空單, 1:多單
-        self.auto_trade_lock = threading.Lock()  # 防止重複下單的鎖
+
+        # MIT自動交易相關
+        self.mit_auto_trading = {1: False, 2: False}  # MIT1和MIT2的自動交易狀態
+        self.mit_position_state = {1: 0, 2: 0}        # MIT1和MIT2的部位狀態
+        self.mit_current_price = {1: 0.0, 2: 0.0}    # MIT1和MIT2的當前價格
+        self.mit_trade_locks = {1: threading.Lock(), 2: threading.Lock()}  # MIT交易鎖
 
         # 啟動報價監控
         if QUOTE_AVAILABLE:
@@ -136,13 +130,13 @@ class DoubleSellSpreadStrategy(Frame):
         main_group.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
 
         # Call選擇權區域
-        call_frame = LabelFrame(main_group, text="Call選擇權 (賣出)", style="Pink.TLabelframe")
+        call_frame = LabelFrame(main_group, text="看漲", style="Pink.TLabelframe")
         call_frame.grid(column=0, row=0, padx=5, pady=5, sticky='w')
 
         self.__create_option_widgets(call_frame, 'call')
 
         # Put選擇權區域
-        put_frame = LabelFrame(main_group, text="Put選擇權 (賣出)", style="Pink.TLabelframe")
+        put_frame = LabelFrame(main_group, text="看跌", style="Pink.TLabelframe")
         put_frame.grid(column=1, row=0, padx=5, pady=5, sticky='w')
 
         self.__create_option_widgets(put_frame, 'put')
@@ -165,15 +159,9 @@ class DoubleSellSpreadStrategy(Frame):
 
         self.__create_mit_widgets(mit_frame)
 
-        # 自動交易區域
-        auto_frame = LabelFrame(main_group, text="自動交易設定", style="Pink.TLabelframe")
-        auto_frame.grid(column=0, row=4, columnspan=2, padx=5, pady=5, sticky='ew')
-
-        self.__create_auto_trading_widgets(auto_frame)
-
         # 監控資訊區域
         monitor_frame = LabelFrame(main_group, text="即時監控", style="Pink.TLabelframe")
-        monitor_frame.grid(column=0, row=5, columnspan=2, padx=5, pady=5, sticky='ew')
+        monitor_frame.grid(column=0, row=4, columnspan=2, padx=5, pady=5, sticky='ew')
 
         self.__create_monitor_widgets(monitor_frame)
 
@@ -213,6 +201,16 @@ class DoubleSellSpreadStrategy(Frame):
         lbPriceValue = Label(frame, style="Pink.TLabel", text="0.00", foreground="blue")
         lbPriceValue.grid(column=3, row=1, padx=5, pady=3)
         setattr(self, f'lb{option_type.title()}CurrentPrice', lbPriceValue)
+
+        # 盤別（借用OptionOrder.py的概念）
+        lbReserved = Label(frame, style="Pink.TLabel", text="盤別")
+        lbReserved.grid(column=0, row=2, pady=3)
+
+        boxReserved = Combobox(frame, width=8, state='readonly')
+        boxReserved['values'] = ['盤中', 'T盤預約']
+        boxReserved.set('盤中')
+        boxReserved.grid(column=0, row=3, padx=5, pady=3, sticky='w')
+        setattr(self, f'box{option_type.title()}Reserved', boxReserved)
 
     def __create_strategy_widgets(self, parent):
         """建立策略參數控件"""
@@ -344,72 +342,62 @@ class DoubleSellSpreadStrategy(Frame):
             btnCancelMIT["command"] = lambda: self.__CancelMITOrder_Click(2)
         btnCancelMIT.grid(column=1, row=5, padx=5, pady=5)
 
-    def __create_auto_trading_widgets(self, parent):
-        """建立自動交易控件"""
-        main_frame = Frame(parent, style="Pink.TFrame")
-        main_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+        # 自動交易區域
+        auto_frame = LabelFrame(frame, text=f"MIT{mit_num}自動交易", style="Pink.TLabelframe")
+        auto_frame.grid(column=0, row=6, columnspan=3, padx=5, pady=5, sticky='ew')
 
         # 啟用自動交易
-        self.chkAutoTrading = Checkbutton(main_frame, text="啟用自動交易", style="Pink.TCheckbutton")
-        self.chkAutoTrading.grid(column=0, row=0, columnspan=3, padx=5, pady=3, sticky='w')
-
-        # 商品代碼
-        lbAutoStockNo = Label(main_frame, style="Pink.TLabel", text="商品代碼")
-        lbAutoStockNo.grid(column=0, row=1, pady=3)
-
-        self.txtAutoStockNo = Entry(main_frame, width=12)
-        self.txtAutoStockNo.grid(column=0, row=2, padx=5, pady=3, sticky='w')
+        chkAutoTrade = Checkbutton(auto_frame, text="啟用自動交易", style="Pink.TCheckbutton")
+        chkAutoTrade.grid(column=0, row=0, columnspan=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'chkMit{mit_num}AutoTrade', chkAutoTrade)
 
         # 買入價格
-        lbBuyPrice = Label(main_frame, style="Pink.TLabel", text="買入價格")
-        lbBuyPrice.grid(column=1, row=1, pady=3)
+        lbBuyPrice = Label(auto_frame, style="Pink.TLabel", text="買入價格")
+        lbBuyPrice.grid(column=0, row=1, pady=3)
 
-        self.txtAutoBuyPrice = Entry(main_frame, width=10)
-        self.txtAutoBuyPrice.grid(column=1, row=2, padx=5, pady=3, sticky='w')
+        txtBuyPrice = Entry(auto_frame, width=10)
+        txtBuyPrice.grid(column=0, row=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}BuyPrice', txtBuyPrice)
 
         # 賣出價格
-        lbSellPrice = Label(main_frame, style="Pink.TLabel", text="賣出價格")
-        lbSellPrice.grid(column=2, row=1, pady=3)
+        lbSellPrice = Label(auto_frame, style="Pink.TLabel", text="賣出價格")
+        lbSellPrice.grid(column=1, row=1, pady=3)
 
-        self.txtAutoSellPrice = Entry(main_frame, width=10)
-        self.txtAutoSellPrice.grid(column=2, row=2, padx=5, pady=3, sticky='w')
-
-        # 交易數量
-        lbAutoQty = Label(main_frame, style="Pink.TLabel", text="交易數量")
-        lbAutoQty.grid(column=3, row=1, pady=3)
-
-        self.txtAutoQty = Entry(main_frame, width=8)
-        self.txtAutoQty.grid(column=3, row=2, padx=5, pady=3, sticky='w')
+        txtSellPrice = Entry(auto_frame, width=10)
+        txtSellPrice.grid(column=1, row=2, padx=5, pady=3, sticky='w')
+        setattr(self, f'txtMit{mit_num}SellPrice', txtSellPrice)
 
         # 當前價格顯示
-        lbCurrentAutoPrice = Label(main_frame, style="Pink.TLabel", text="當前價格")
-        lbCurrentAutoPrice.grid(column=4, row=1, pady=3)
+        lbCurrentPrice = Label(auto_frame, style="Pink.TLabel", text="當前價格")
+        lbCurrentPrice.grid(column=2, row=1, pady=3)
 
-        self.lbCurrentAutoPrice = Label(main_frame, style="Pink.TLabel", text="0.00", foreground="blue", font=("Arial", 12, "bold"))
-        self.lbCurrentAutoPrice.grid(column=4, row=2, padx=5, pady=3)
+        lbPriceValue = Label(auto_frame, style="Pink.TLabel", text="0.00", foreground="blue", font=("Arial", 10, "bold"))
+        lbPriceValue.grid(column=2, row=2, padx=5, pady=3)
+        setattr(self, f'lbMit{mit_num}CurrentPrice', lbPriceValue)
 
-        # 當前部位顯示
-        lbPosition = Label(main_frame, style="Pink.TLabel", text="當前部位")
-        lbPosition.grid(column=5, row=1, pady=3)
+        # 部位狀態
+        lbPosition = Label(auto_frame, style="Pink.TLabel", text="部位狀態")
+        lbPosition.grid(column=0, row=3, pady=3)
 
-        self.lbPositionState = Label(main_frame, style="Pink.TLabel", text="空單", foreground="green")
-        self.lbPositionState.grid(column=5, row=2, padx=5, pady=3)
+        lbPositionValue = Label(auto_frame, style="Pink.TLabel", text="空單", foreground="green")
+        lbPositionValue.grid(column=0, row=4, padx=5, pady=3)
+        setattr(self, f'lbMit{mit_num}Position', lbPositionValue)
 
-        # 控制按鈕
-        btn_frame = Frame(main_frame, style="Pink.TFrame")
-        btn_frame.grid(column=0, row=3, columnspan=6, pady=10)
+        # 自動交易控制按鈕
+        btnStartAuto = Button(auto_frame, style="Pink.TButton", text="啟動自動")
+        if mit_num == 1:
+            btnStartAuto["command"] = lambda: self.__StartMITAutoTrading(1)
+        else:
+            btnStartAuto["command"] = lambda: self.__StartMITAutoTrading(2)
+        btnStartAuto.grid(column=1, row=4, padx=5, pady=3)
 
-        btnStartAuto = Button(btn_frame, style="Pink.TButton", text="啟動自動交易")
-        btnStartAuto["command"] = self.__start_auto_trading
-        btnStartAuto.grid(column=0, row=0, padx=5, pady=3)
+        btnStopAuto = Button(auto_frame, style="Pink.TButton", text="停止自動")
+        if mit_num == 1:
+            btnStopAuto["command"] = lambda: self.__StopMITAutoTrading(1)
+        else:
+            btnStopAuto["command"] = lambda: self.__StopMITAutoTrading(2)
+        btnStopAuto.grid(column=2, row=4, padx=5, pady=3)
 
-        btnStopAuto = Button(btn_frame, style="Pink.TButton", text="停止自動交易")
-        btnStopAuto["command"] = self.__stop_auto_trading
-        btnStopAuto.grid(column=1, row=0, padx=5, pady=3)
-
-        btnResetPosition = Button(btn_frame, style="Pink.TButton", text="重設部位")
-        btnResetPosition["command"] = self.__reset_position
-        btnResetPosition.grid(column=2, row=0, padx=5, pady=3)
 
     def __create_order_buttons(self, parent):
         """建立下單按鈕"""
@@ -1006,6 +994,227 @@ class DoubleSellSpreadStrategy(Frame):
         except Exception as e:
             self.lbStrategyStatus.config(text=f"MIT{mit_num}下單錯誤", foreground="red")
             messagebox.showerror("錯誤", f"MIT{mit_num}下單發生錯誤: {str(e)}")
+
+
+    # MIT自動交易功能
+    def __StartMITAutoTrading(self, mit_num):
+        """啟動MIT自動交易"""
+        try:
+            if not self.__validate_mit_auto_inputs(mit_num):
+                return
+
+            if self.__dOrder['boxAccount'] == '':
+                messagebox.showerror("錯誤", '請選擇期貨帳號!')
+                return
+
+            self.mit_auto_trading[mit_num] = True
+            chk_auto = getattr(self, f'chkMit{mit_num}AutoTrade')
+            chk_auto.state(['selected'])
+
+            messagebox.showinfo("MIT自動交易", f"MIT{mit_num}自動交易已啟動")
+
+            # 啟動MIT自動交易監控
+            self.__start_mit_auto_monitoring(mit_num)
+
+        except Exception as e:
+            messagebox.showerror("錯誤", f"啟動MIT{mit_num}自動交易失敗: {str(e)}")
+
+    def __StopMITAutoTrading(self, mit_num):
+        """停止MIT自動交易"""
+        self.mit_auto_trading[mit_num] = False
+        chk_auto = getattr(self, f'chkMit{mit_num}AutoTrade')
+        chk_auto.state(['!selected'])
+        messagebox.showinfo("MIT自動交易", f"MIT{mit_num}自動交易已停止")
+
+    def __validate_mit_auto_inputs(self, mit_num):
+        """驗證MIT自動交易輸入"""
+        try:
+            stock_no = getattr(self, f'txtMit{mit_num}StockNo').get()
+            buy_price = getattr(self, f'txtMit{mit_num}BuyPrice').get()
+            sell_price = getattr(self, f'txtMit{mit_num}SellPrice').get()
+            qty = getattr(self, f'txtMit{mit_num}Qty').get()
+
+            if not stock_no:
+                messagebox.showerror("錯誤", f"請輸入MIT{mit_num}商品代碼!")
+                return False
+
+            if not buy_price:
+                messagebox.showerror("錯誤", f"請輸入MIT{mit_num}買入價格!")
+                return False
+
+            if not sell_price:
+                messagebox.showerror("錯誤", f"請輸入MIT{mit_num}賣出價格!")
+                return False
+
+            if not qty:
+                messagebox.showerror("錯誤", f"請輸入MIT{mit_num}委託數量!")
+                return False
+
+            # 驗證數值格式
+            buy_val = float(buy_price)
+            sell_val = float(sell_price)
+            qty_val = int(qty)
+
+            if buy_val >= sell_val:
+                messagebox.showerror("錯誤", f"MIT{mit_num}買入價格必須小於賣出價格!")
+                return False
+
+            if qty_val <= 0:
+                messagebox.showerror("錯誤", f"MIT{mit_num}委託數量必須大於0!")
+                return False
+
+            return True
+
+        except ValueError:
+            messagebox.showerror("錯誤", f"MIT{mit_num}價格或數量格式錯誤!")
+            return False
+
+    def __start_mit_auto_monitoring(self, mit_num):
+        """啟動MIT自動交易監控"""
+        def mit_auto_monitor():
+            while self.mit_auto_trading[mit_num]:
+                try:
+                    stock_no = getattr(self, f'txtMit{mit_num}StockNo').get()
+
+                    if stock_no and QUOTE_AVAILABLE:
+                        # 獲取當前價格
+                        quote = QuoteModule.get_quote(stock_no)
+                        if quote:
+                            current_price = float(quote.get('price', 0))
+                            self.mit_current_price[mit_num] = current_price
+
+                            # 更新UI顯示
+                            price_label = getattr(self, f'lbMit{mit_num}CurrentPrice')
+                            price_label.config(text=f"{current_price:.2f}")
+
+                            # 執行MIT自動交易邏輯
+                            self.__execute_mit_auto_trading_logic(mit_num, current_price)
+
+                    time.sleep(1)  # 每秒檢查一次
+
+                except Exception as e:
+                    print(f"MIT{mit_num}自動交易監控錯誤: {e}")
+                    time.sleep(5)
+
+        # 在背景執行緒中執行監控
+        mit_monitor_thread = threading.Thread(target=mit_auto_monitor, daemon=True)
+        mit_monitor_thread.start()
+
+    def __execute_mit_auto_trading_logic(self, mit_num, current_price):
+        """執行MIT自動交易邏輯"""
+        try:
+            with self.mit_trade_locks[mit_num]:  # 使用鎖防止重複下單
+                buy_price = float(getattr(self, f'txtMit{mit_num}BuyPrice').get())
+                sell_price = float(getattr(self, f'txtMit{mit_num}SellPrice').get())
+
+                # 當前為空單且價格等於買入價格時，執行買入
+                if self.mit_position_state[mit_num] == 0 and abs(current_price - buy_price) < 0.01:
+                    if self.__execute_mit_auto_buy(mit_num):
+                        self.mit_position_state[mit_num] = 1
+                        position_label = getattr(self, f'lbMit{mit_num}Position')
+                        position_label.config(text="多單", foreground="red")
+                        print(f"MIT{mit_num}自動買入執行 - 價格: {current_price}")
+
+                # 當前為多單且價格等於賣出價格時，執行賣出
+                elif self.mit_position_state[mit_num] == 1 and abs(current_price - sell_price) < 0.01:
+                    if self.__execute_mit_auto_sell(mit_num):
+                        self.mit_position_state[mit_num] = 0
+                        position_label = getattr(self, f'lbMit{mit_num}Position')
+                        position_label.config(text="空單", foreground="green")
+                        print(f"MIT{mit_num}自動賣出執行 - 價格: {current_price}")
+
+        except Exception as e:
+            print(f"MIT{mit_num}自動交易邏輯錯誤: {e}")
+
+    def __execute_mit_auto_buy(self, mit_num):
+        """執行MIT自動買入"""
+        try:
+            # 建立委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # 填入商品代號
+            oOrder.bstrStockNo = getattr(self, f'txtMit{mit_num}StockNo').get()
+
+            # 買進
+            oOrder.sBuySell = 0
+
+            # 委託條件 (IOC)
+            oOrder.sTradeType = 1
+
+            # 新倉
+            oOrder.sNewClose = 0
+
+            # 非當沖
+            oOrder.sDayTrade = 0
+
+            # 委託價 (市價單)
+            oOrder.bstrPrice = "M"
+
+            # 委託數量
+            oOrder.nQty = int(getattr(self, f'txtMit{mit_num}Qty').get())
+
+            # 發送委託單
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, True, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"MIT{mit_num}自動買入委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                return True
+            else:
+                print(f"MIT{mit_num}自動買入委託失敗，錯誤代碼: {m_nCode}")
+                return False
+
+        except Exception as e:
+            print(f"MIT{mit_num}自動買入錯誤: {e}")
+            return False
+
+    def __execute_mit_auto_sell(self, mit_num):
+        """執行MIT自動賣出"""
+        try:
+            # 建立委託單物件
+            oOrder = sk.FUTUREORDER()
+
+            # 填入帳號資訊
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+
+            # 填入商品代號
+            oOrder.bstrStockNo = getattr(self, f'txtMit{mit_num}StockNo').get()
+
+            # 賣出
+            oOrder.sBuySell = 1
+
+            # 委託條件 (IOC)
+            oOrder.sTradeType = 1
+
+            # 平倉
+            oOrder.sNewClose = 1
+
+            # 非當沖
+            oOrder.sDayTrade = 0
+
+            # 委託價 (市價單)
+            oOrder.bstrPrice = "M"
+
+            # 委託數量
+            oOrder.nQty = int(getattr(self, f'txtMit{mit_num}Qty').get())
+
+            # 發送委託單
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, True, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"MIT{mit_num}自動賣出委託成功: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                return True
+            else:
+                print(f"MIT{mit_num}自動賣出委託失敗，錯誤代碼: {m_nCode}")
+                return False
+
+        except Exception as e:
+            print(f"MIT{mit_num}自動賣出錯誤: {e}")
+            return False
 
 
 # 建立主要的策略視窗類別
