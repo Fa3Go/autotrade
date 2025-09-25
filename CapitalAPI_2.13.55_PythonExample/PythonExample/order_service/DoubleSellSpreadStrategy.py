@@ -785,6 +785,9 @@ class DoubleSellSpreadStrategy(Frame):
             # 倉別
             oOrder.sNewClose = sNewClose
 
+            # 當沖標記 (預設非當沖)
+            oOrder.sDayTrade = 0
+
             # 設定盤別 (如果有的話)
             if hasattr(self, 'boxCallReserved'):
                 call_reserved = self.__get_reserved_code(self.boxCallReserved.get())
@@ -1079,7 +1082,7 @@ class DoubleSellSpreadStrategy(Frame):
             oOrder.sDayTrade = 0
 
             # 委託價
-            oOrder.bstrDealPrice = getattr(self, f'txtMit{mit_num}DealPrice').get()
+            oOrder.bstrPrice = getattr(self, f'txtMit{mit_num}DealPrice').get()
 
             # 委託數量
             oOrder.nQty = int(getattr(self, f'txtMit{mit_num}Qty').get())
@@ -1214,28 +1217,52 @@ class DoubleSellSpreadStrategy(Frame):
         mit_monitor_thread.start()
 
     def __execute_mit_auto_trading_logic(self, mit_num, current_price):
-        """執行MIT自動交易邏輯"""
+        """執行MIT自動交易邏輯 (增強版，加入安全檢查)"""
         try:
             with self.mit_trade_locks[mit_num]:  # 使用鎖防止重複下單
-                buy_price = float(getattr(self, f'txtMit{mit_num}BuyPrice').get())
-                sell_price = float(getattr(self, f'txtMit{mit_num}SellPrice').get())
+                # 安全檢查：確保價格有效
+                if current_price <= 0:
+                    return
+
+                buy_price_str = getattr(self, f'txtMit{mit_num}BuyPrice').get().strip()
+                sell_price_str = getattr(self, f'txtMit{mit_num}SellPrice').get().strip()
+
+                # 安全檢查：確保價格輸入不為空
+                if not buy_price_str or not sell_price_str:
+                    return
+
+                buy_price = float(buy_price_str)
+                sell_price = float(sell_price_str)
+
+                # 安全檢查：確保價格合理
+                if buy_price <= 0 or sell_price <= 0:
+                    return
+
+                # 安全檢查：確保買入價格小於賣出價格
+                if buy_price >= sell_price:
+                    print(f"MIT{mit_num}警告: 買入價格({buy_price})應小於賣出價格({sell_price})")
+                    return
 
                 # 當前為空單且價格等於買入價格時，執行買入
                 if self.mit_position_state[mit_num] == 0 and abs(current_price - buy_price) < 0.01:
+                    print(f"MIT{mit_num}觸發買入條件 - 當前價格: {current_price}, 買入價格: {buy_price}")
                     if self.__execute_mit_auto_buy(mit_num):
                         self.mit_position_state[mit_num] = 1
                         position_label = getattr(self, f'lbMit{mit_num}Position')
                         position_label.config(text="多單", foreground="red")
-                        print(f"MIT{mit_num}自動買入執行 - 價格: {current_price}")
+                        print(f"[SUCCESS] MIT{mit_num}自動買入執行 - 價格: {current_price}")
 
                 # 當前為多單且價格等於賣出價格時，執行賣出
                 elif self.mit_position_state[mit_num] == 1 and abs(current_price - sell_price) < 0.01:
+                    print(f"MIT{mit_num}觸發賣出條件 - 當前價格: {current_price}, 賣出價格: {sell_price}")
                     if self.__execute_mit_auto_sell(mit_num):
                         self.mit_position_state[mit_num] = 0
                         position_label = getattr(self, f'lbMit{mit_num}Position')
                         position_label.config(text="空單", foreground="green")
-                        print(f"MIT{mit_num}自動賣出執行 - 價格: {current_price}")
+                        print(f"[SUCCESS] MIT{mit_num}自動賣出執行 - 價格: {current_price}")
 
+        except ValueError as ve:
+            print(f"MIT{mit_num}自動交易價格格式錯誤: {ve}")
         except Exception as e:
             print(f"MIT{mit_num}自動交易邏輯錯誤: {e}")
 
