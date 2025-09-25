@@ -466,19 +466,23 @@ class DoubleSellSpreadStrategy(Frame):
             messagebox.showerror("錯誤", "請確認價格輸入格式正確!")
 
     def __start_quote_monitoring(self):
-        """啟動報價監控"""
+        """啟動報價監控（使用tkinter after方法避免GIL問題）"""
         def monitor_quotes():
-            while True:
-                try:
-                    # 安全地獲取GUI元件的值
-                    try:
-                        call_stock_no = self.txtCallStockNo.get() if hasattr(self, 'txtCallStockNo') else ""
-                        put_stock_no = self.txtPutStockNo.get() if hasattr(self, 'txtPutStockNo') else ""
-                    except:
-                        call_stock_no = ""
-                        put_stock_no = ""
+            try:
+                # 安全地獲取GUI元件的值
+                call_stock_no = ""
+                put_stock_no = ""
 
-                    if call_stock_no and put_stock_no and QUOTE_AVAILABLE:
+                try:
+                    if hasattr(self, 'txtCallStockNo'):
+                        call_stock_no = self.txtCallStockNo.get()
+                    if hasattr(self, 'txtPutStockNo'):
+                        put_stock_no = self.txtPutStockNo.get()
+                except:
+                    pass
+
+                if call_stock_no and put_stock_no and QUOTE_AVAILABLE:
+                    try:
                         # 使用Quote模組獲取報價
                         call_quote = QuoteModule.get_quote(call_stock_no)
                         put_quote = QuoteModule.get_quote(put_stock_no)
@@ -487,31 +491,26 @@ class DoubleSellSpreadStrategy(Frame):
                             self.current_call_price = float(call_quote.get('price', 0))
                             self.current_put_price = float(put_quote.get('price', 0))
 
-                            # 使用after方法安全地更新GUI
-                            def update_gui():
-                                try:
-                                    if hasattr(self, 'lbCallCurrentPrice'):
-                                        self.lbCallCurrentPrice.config(text=f"{self.current_call_price:.2f}")
-                                    if hasattr(self, 'lbPutCurrentPrice'):
-                                        self.lbPutCurrentPrice.config(text=f"{self.current_put_price:.2f}")
+                            # 直接更新GUI（因為已經在主線程中）
+                            if hasattr(self, 'lbCallCurrentPrice'):
+                                self.lbCallCurrentPrice.config(text=f"{self.current_call_price:.2f}")
+                            if hasattr(self, 'lbPutCurrentPrice'):
+                                self.lbPutCurrentPrice.config(text=f"{self.current_put_price:.2f}")
 
-                                    # 更新價差
-                                    self.spread_value = self.current_call_price - self.current_put_price
-                                    self.__update_spread_display()
-                                except Exception as e:
-                                    print(f"GUI更新錯誤: {e}")
+                            # 更新價差
+                            self.spread_value = self.current_call_price - self.current_put_price
+                            self.__update_spread_display()
+                    except Exception as e:
+                        print(f"報價獲取錯誤: {e}")
 
-                            # 在主線程中執行GUI更新
-                            self.after_idle(update_gui)
+            except Exception as e:
+                print(f"報價監控錯誤: {e}")
 
-                    time.sleep(1)  # 每秒更新一次
-                except Exception as e:
-                    print(f"報價監控錯誤: {e}")
-                    time.sleep(5)
+            # 使用after方法每1000毫秒（1秒）後再次執行
+            self.after(1000, monitor_quotes)
 
-        # 在背景執行緒中執行監控
-        monitor_thread = threading.Thread(target=monitor_quotes, daemon=True)
-        monitor_thread.start()
+        # 開始監控
+        monitor_quotes()
 
     def __update_spread_display(self):
         """更新價差顯示"""
@@ -1200,47 +1199,51 @@ class DoubleSellSpreadStrategy(Frame):
             return False
 
     def __start_mit_auto_monitoring(self, mit_num):
-        """啟動MIT自動交易監控"""
+        """啟動MIT自動交易監控（使用tkinter after方法避免GIL問題）"""
         def mit_auto_monitor():
-            while self.mit_auto_trading[mit_num]:
-                try:
-                    # 安全地獲取商品代碼
-                    try:
-                        stock_no = getattr(self, f'txtMit{mit_num}StockNo').get() if hasattr(self, f'txtMit{mit_num}StockNo') else ""
-                    except:
-                        stock_no = ""
+            try:
+                # 檢查是否還需要繼續監控
+                if not self.mit_auto_trading[mit_num]:
+                    return  # 停止監控
 
-                    if stock_no and QUOTE_AVAILABLE:
+                # 安全地獲取商品代碼
+                stock_no = ""
+                try:
+                    if hasattr(self, f'txtMit{mit_num}StockNo'):
+                        stock_no = getattr(self, f'txtMit{mit_num}StockNo').get()
+                except:
+                    pass
+
+                if stock_no and QUOTE_AVAILABLE:
+                    try:
                         # 獲取當前價格
                         quote = QuoteModule.get_quote(stock_no)
                         if quote:
                             current_price = float(quote.get('price', 0))
                             self.mit_current_price[mit_num] = current_price
 
-                            # 使用after方法安全地更新GUI
-                            def update_price_gui():
-                                try:
-                                    price_label = getattr(self, f'lbMit{mit_num}CurrentPrice', None)
-                                    if price_label:
-                                        price_label.config(text=f"{current_price:.2f}")
-                                except Exception as e:
-                                    print(f"MIT{mit_num}價格GUI更新錯誤: {e}")
-
-                            # 在主線程中執行GUI更新
-                            self.after_idle(update_price_gui)
+                            # 直接更新GUI（因為已經在主線程中）
+                            try:
+                                price_label = getattr(self, f'lbMit{mit_num}CurrentPrice', None)
+                                if price_label:
+                                    price_label.config(text=f"{current_price:.2f}")
+                            except Exception as e:
+                                print(f"MIT{mit_num}價格GUI更新錯誤: {e}")
 
                             # 執行MIT自動交易邏輯
                             self.__execute_mit_auto_trading_logic(mit_num, current_price)
+                    except Exception as e:
+                        print(f"MIT{mit_num}報價獲取錯誤: {e}")
 
-                    time.sleep(1)  # 每秒檢查一次
+            except Exception as e:
+                print(f"MIT{mit_num}自動交易監控錯誤: {e}")
 
-                except Exception as e:
-                    print(f"MIT{mit_num}自動交易監控錯誤: {e}")
-                    time.sleep(5)
+            # 如果還在運行，排程下一次檢查
+            if self.mit_auto_trading[mit_num]:
+                self.after(1000, mit_auto_monitor)  # 每1000毫秒（1秒）後再次執行
 
-        # 在背景執行緒中執行監控
-        mit_monitor_thread = threading.Thread(target=mit_auto_monitor, daemon=True)
-        mit_monitor_thread.start()
+        # 開始監控
+        mit_auto_monitor()
 
     def __execute_mit_auto_trading_logic(self, mit_num, current_price):
         """執行MIT自動交易邏輯 (增強版，加入安全檢查)"""
@@ -1275,16 +1278,13 @@ class DoubleSellSpreadStrategy(Frame):
                     if self.__execute_mit_auto_buy(mit_num):
                         self.mit_position_state[mit_num] = 1
 
-                        # 安全地更新GUI
-                        def update_position_buy():
-                            try:
-                                position_label = getattr(self, f'lbMit{mit_num}Position', None)
-                                if position_label:
-                                    position_label.config(text="多單", foreground="red")
-                            except Exception as e:
-                                print(f"MIT{mit_num}部位GUI更新錯誤: {e}")
-
-                        self.after_idle(update_position_buy)
+                        # 直接更新GUI（已經在主線程中）
+                        try:
+                            position_label = getattr(self, f'lbMit{mit_num}Position', None)
+                            if position_label:
+                                position_label.config(text="多單", foreground="red")
+                        except Exception as e:
+                            print(f"MIT{mit_num}部位GUI更新錯誤: {e}")
                         print(f"[SUCCESS] MIT{mit_num}自動買入執行 - 價格: {current_price}")
 
                 # 當前為多單且價格等於賣出價格時，執行賣出
@@ -1293,16 +1293,13 @@ class DoubleSellSpreadStrategy(Frame):
                     if self.__execute_mit_auto_sell(mit_num):
                         self.mit_position_state[mit_num] = 0
 
-                        # 安全地更新GUI
-                        def update_position_sell():
-                            try:
-                                position_label = getattr(self, f'lbMit{mit_num}Position', None)
-                                if position_label:
-                                    position_label.config(text="空單", foreground="green")
-                            except Exception as e:
-                                print(f"MIT{mit_num}部位GUI更新錯誤: {e}")
-
-                        self.after_idle(update_position_sell)
+                        # 直接更新GUI（已經在主線程中）
+                        try:
+                            position_label = getattr(self, f'lbMit{mit_num}Position', None)
+                            if position_label:
+                                position_label.config(text="空單", foreground="green")
+                        except Exception as e:
+                            print(f"MIT{mit_num}部位GUI更新錯誤: {e}")
                         print(f"[SUCCESS] MIT{mit_num}自動賣出執行 - 價格: {current_price}")
 
         except ValueError as ve:
