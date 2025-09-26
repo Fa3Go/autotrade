@@ -39,10 +39,12 @@ class DoubleSell(Frame):
     def SetAccount(self, account):
         self.__dOrder['boxAccount'] = account
 
+        # 清空輸入框
     def __CreateWidget(self):
         group = LabelFrame(self, text="DoubleSell", style="Pink.TLabelframe")
         group.grid(column = 0, row = 0, padx = 5, pady = 5, columnspan = 3, sticky = 'w')
 
+        # Frame
         frame = Frame(group, style="Pink.TFrame")
         frame.grid(column = 0, row = 0, padx = 5, pady = 5, sticky = 'w')
 
@@ -108,16 +110,17 @@ class DoubleSell(Frame):
         self.txtQty = Entry(frame, width = 10)
         self.txtQty.grid(column = 5, row = 2, padx = 5)
 
-        # btnSendOrder - 目前只有GUI，不實現邏輯
+        # btnSendOrder - 同步委託
         btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 6, row =  1, padx = 5)
 
-        # btnSendOrderAsync - 目前只有GUI，不實現邏輯
+        # btnSendOrderAsync - 非同步委託
         btnSendOrderAsync = Button(frame, style = "Pink.TButton", text = "非同步委託")
         btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
         btnSendOrderAsync.grid(column = 6, row =  2, padx = 5)
 
+        
     def __btnSendOrder_Click(self):
         if self.__dOrder['boxAccount'] == '':
             messagebox.showerror("error！", '請選擇期貨帳號！')

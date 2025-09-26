@@ -25,6 +25,7 @@ from tkinter import messagebox
 import Config
 import MessageControl
 #----------------------------------------------------------------------------------------------------------------------------------------------------
+
 # 選擇權下單(新增非同步)
 class Order(Frame):
     def __init__(self, master=None, information=None):
@@ -107,11 +108,12 @@ class Order(Frame):
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 7, row =  0, padx = 10)
 
+        # btnSendOrderAsync - 非同步委託
         btnSendOrderAsync = Button(frame, style = "Pink.TButton", text = "非同步委託")
         btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
         btnSendOrderAsync.grid(column = 7, row =  1, padx = 10)
 
-
+        # 儲存輸入框物件
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxPeriod'] = boxPeriod
         self.__dOrder['boxBuySell'] = boxBuySell
@@ -186,6 +188,7 @@ class Order(Frame):
                 self.__oMsg.WriteMessage( strMsg, self.__dOrder['listInformation'])
         except Exception as e:
             messagebox.showerror("error！", e)
+            
 # 選擇權複式單(同步&非同步)
 class DuplexOrder():
     def __init__(self, master=None, information=None):
@@ -337,6 +340,7 @@ class DuplexOrder():
 
         except Exception as e:
             messagebox.showerror("error！", e)
+
 # 依序號/書號改價(選擇權)
 class CorrectPrice():
     def __init__(self, master=None, information=None):

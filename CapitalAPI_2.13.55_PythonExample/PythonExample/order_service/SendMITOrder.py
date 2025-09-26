@@ -8,6 +8,10 @@ from os.path import dirname, abspath, split
 import comtypes.gen.SKCOMLib as sk
 skC = Global.skC
 skO = Global.skO
+skR = Global.skR
+skQ = Global.skQ
+skOSQ = Global.skOSQ
+skOOQ = Global.skOOQ
 
 # 畫視窗用物件
 from tkinter import *
@@ -19,6 +23,7 @@ import Config
 import MessageControl
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 
+# MIT期貨下單
 class MITFutureOrder(Frame):
     def __init__(self, master=None, information=None):
         Frame.__init__(self)
@@ -49,7 +54,7 @@ class MITFutureOrder(Frame):
         # 商品代碼
         lbStockNo = Label(frame, style="Pink.TLabel", text = "商品代碼")
         lbStockNo.grid(column = 0, row = 0, pady = 3)
-            # 輸入框
+        # 輸入框
         txtStockNo = Entry(frame, width = 10)
         txtStockNo.grid(column = 0, row = 1, padx = 10, pady = 3)
 
@@ -118,6 +123,11 @@ class MITFutureOrder(Frame):
         btnSendOrder = Button(frame, style = "Pink.TButton", text = "送出委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 9, row =  1, padx = 10)
+        
+        # btnAsyncSendOrder
+        btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
+        btnAsyncSendOrder["command"] = self.__btnSendOrderAsync_Click
+        btnAsyncSendOrder.grid(column = 10, row =  1, padx = 10)
 
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxBuySell'] = boxBuySell
@@ -135,6 +145,15 @@ class MITFutureOrder(Frame):
         if self.__dOrder['boxAccount'] == '':
             messagebox.showerror("error！", '請選擇期貨帳號！')
         else:
+            self.__btnSendOrder_Click(False)
+
+    def __btnSendOrderAsync_Click(self):
+        if self.__dOrder['boxAccount'] == '':
+            messagebox.showerror("error！", '請選擇期貨帳號！')
+        else:
+            self.__SendOrder_Click(True)
+
+    def __SendOrder_Click(self, bAsyncOrder):
             try:
                 if self.__dOrder['boxBuySell'].get() == "買進":
                     sBuySell = 0
@@ -187,17 +206,14 @@ class MITFutureOrder(Frame):
                 oOrder.bstrTrigger = self.__dOrder['txtTrigger'].get()
 
                 message,m_nCode = skO.SendFutureMITOrder(Global.Global_IID, bAsyncOrder, oOrder)
-
                 self.__oMsg.SendReturnMessage("Order",m_nCode, "SendFutureMITOrder", self.__dOrder['listInformation'])
                 if bAsyncOrder == False and m_nCode ==0:                    
                     strMsg = "期貨MIT委託: " + str(message)
                     self.__oMsg.WriteMessage( strMsg, self.__dOrder['listInformation'])
-
-
             except Exception as e:
                 messagebox.showerror("error！", e)
 
-
+# MIT選擇權下單
 class MITOptionOrder(Frame):
     def __init__(self, master=None, information=None):
         Frame.__init__(self)
@@ -290,6 +306,11 @@ class MITOptionOrder(Frame):
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 9, row =  1, padx = 10)
 
+        # btnAsyncSendOrder
+        btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
+        btnAsyncSendOrder["command"] = self.__btnSendOrderAsync_Click
+        btnAsyncSendOrder.grid(column = 10, row =  1, padx = 10)
+
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxBuySell'] = boxBuySell
         self.__dOrder['boxPeriod'] = boxPeriod
@@ -304,6 +325,14 @@ class MITOptionOrder(Frame):
         if self.__dOrder['boxAccount'] == '':
             messagebox.showerror("error！", '請選擇期貨帳號！')
         else:
+            self.__SendOrder_Click(False)
+    def __btnSendOrderAsync_Click(self):
+        if self.__dOrder['boxAccount'] == '':
+            messagebox.showerror("error！", '請選擇期貨帳號！')
+        else:
+            self.__SendOrder_Click(True)
+    
+    def __SendOrder_Click(self, bAsyncOrder):        
             try:
                 if self.__dOrder['boxBuySell'].get() == "買進":
                     sBuySell = 0
@@ -358,6 +387,7 @@ class MITOptionOrder(Frame):
             except Exception as e:
                 messagebox.showerror("error！", e)
 
+# MIT刪單
 class MITCancel(Frame):
     def __init__(self, master=None, information=None):
         Frame.__init__(self)
@@ -412,7 +442,8 @@ class MITCancel(Frame):
         btnSend = Button(frame, style = "Pink.TButton", text = "刪單送出")
         btnSend["command"] = self.__btnSend_Click
         btnSend.grid(column = 9, row =  1, padx = 10)
-
+        
+        # 儲存輸入框物件
         self.__dOrder['txtSmartKey'] = txtSmartKey
         self.__dOrder['boxType'] = boxType
         self.__dOrder['boxASYNC'] = boxASYNC

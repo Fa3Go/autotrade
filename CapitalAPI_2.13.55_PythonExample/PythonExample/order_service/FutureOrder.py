@@ -106,15 +106,18 @@ class Order(Frame):
         btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 8, row =  0, padx = 5)
-
+        
+        # btnAsyncSendOrder
         btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
         btnAsyncSendOrder["command"] = self.__btnAsyncSendOrder_Click
         btnAsyncSendOrder.grid(column = 8, row =  1, padx = 5)
-
+        
+        # btnSendOrderCLR
         btnSendOrderCLR = Button(frame, style = "Pink.TButton", text = "同步委託(含倉別/盤別)")
         btnSendOrderCLR["command"] = self.__btnSendOrderCLR_Click
         btnSendOrderCLR.grid(column = 9, row =  0, padx = 5)
-
+        
+        # btnAsyncSendOrderCLR
         btnAsyncSendOrderCLR = Button(frame, style = "Pink.TButton", text = "非同步委託(含倉別/盤別)")
         btnAsyncSendOrderCLR["command"] = self.__btnAsyncSendOrderCLR_Click
         btnAsyncSendOrderCLR.grid(column = 9, row =  1, padx = 5)
