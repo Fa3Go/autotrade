@@ -66,7 +66,7 @@ class MITFutureOrder(Frame):
         lbPeriod.grid(column = 2, row = 0)
         # 輸入框
         boxPeriod = Combobox(frame, width = 8, state='readonly')
-        boxPeriod['values'] = Config.PERIODSET['moving_stop_loss']
+        boxPeriod['values'] = Config.PERIODSET['future']
         boxPeriod.grid(column = 2, row = 1, padx = 10)
 
         # 倉別
@@ -141,7 +141,9 @@ class MITFutureOrder(Frame):
                 elif self.__dOrder['boxBuySell'].get() == "賣出":
                     sBuySell = 1
 
-                if self.__dOrder['boxPeriod'].get() == "IOC":
+                if self.__dOrder['boxPeriod'].get() == "ROD":
+                    sTradeType = 0
+                elif self.__dOrder['boxPeriod'].get() == "IOC":
                     sTradeType = 1
                 elif self.__dOrder['boxPeriod'].get() == "FOK":
                     sTradeType = 2
@@ -171,14 +173,14 @@ class MITFutureOrder(Frame):
                 oOrder.bstrStockNo = self.__dOrder['txtStockNo'].get()
                 # 買賣別
                 oOrder.sBuySell = sBuySell
-                # IOC、FOK
+                # ROD、IOC、FOK
                 oOrder.sTradeType = sTradeType
                 # 新倉、平倉、自動
                 oOrder.sNewClose = sNewClose
                 # 非當沖、當沖
                 oOrder.sDayTrade = sDayTrade
-                # 成交價
-                oOrder.bstrDealPrice = self.__dOrder['txtDealPrice'].get()
+                # 委託價(MIT)
+                oOrder.bstrPrice = self.__dOrder['txtDealPrice'].get()
                 # 委託數量
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價
@@ -243,7 +245,7 @@ class MITOptionOrder(Frame):
         lbPeriod.grid(column = 2, row = 0)
         # 輸入框
         boxPeriod = Combobox(frame, width = 8, state='readonly')
-        boxPeriod['values'] = Config.PERIODSET['moving_stop_loss']
+        boxPeriod['values'] = Config.PERIODSET['future']
         boxPeriod.grid(column = 2, row = 1, padx = 10)
 
         # 倉別
@@ -308,7 +310,9 @@ class MITOptionOrder(Frame):
                 elif self.__dOrder['boxBuySell'].get() == "賣出":
                     sBuySell = 1
 
-                if  self.__dOrder['boxPeriod'].get() == "IOC":
+                if self.__dOrder['boxPeriod'].get() == "ROD":
+                    sTradeType = 0
+                elif self.__dOrder['boxPeriod'].get() == "IOC":
                     sTradeType = 1
                 elif self.__dOrder['boxPeriod'].get() == "FOK":
                     sTradeType = 2
@@ -333,12 +337,14 @@ class MITOptionOrder(Frame):
                 oOrder.bstrStockNo = self.__dOrder['txtStockNo'].get()
                 # 買賣別
                 oOrder.sBuySell = sBuySell
-                # IOC、FOK
+                # ROD、IOC、FOK
                 oOrder.sTradeType = sTradeType
                 # 新倉、平倉、自動
                 oOrder.sNewClose = sNewClose
-                # 成交價
-                oOrder.bstrDealPrice = self.__dOrder['txtDealPrice'].get()
+                # 非當沖、當沖 (選擇權MIT新增)
+                oOrder.sDayTrade = 0
+                # 委託價(MIT)
+                oOrder.bstrPrice = self.__dOrder['txtDealPrice'].get()
                 # 委託數量
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價

@@ -94,6 +94,7 @@ import MessageControl
 import Config
 #import WithDraw
 import StockSmartTrade
+import DoubleSell
 #----------------------------------------------------------------------------------------------------------------------------------------------------
 
 # 上半部登入框
@@ -174,6 +175,8 @@ class __FrameLogin(Frame):
                 stock_smart = StockSmartTrade.StockSmartTrade(information = self.listInformation),
                 # 複委託
                 foreign_stock = ForeignStockOrder.ForeignStockOrder(information = self.listInformation),
+                # DoubleSell
+                double_sell = DoubleSell.DoubleSell(information = self.listInformation),
                 # 出入金
                 #withdraw = WithDraw.WithDraw(information = self.listInformation),
             )
@@ -407,6 +410,10 @@ class __FrameOrder(Frame):
         # 複委託
         self.__obj['foreign_stock'] = ForeignStockOrder.ForeignStockOrder(information = GlobalListInformation)
         tab.add(self.__obj['foreign_stock'], text="複委託  ")
+
+        # DoubleSell
+        self.__obj['double_sell'] = DoubleSell.DoubleSell(information = GlobalListInformation)
+        tab.add(self.__obj['double_sell'], text="DoubleSell  ")
 
     # 下單function
     # 1.下單物件初始
@@ -725,7 +732,11 @@ if __name__ == '__main__':
         print("Quote模組未載入，跳過報價功能")
 
     # 布局Canvas和Scrollbar
-    main_canvas.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
+    main_canvas.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # 配置行和列的權重
+    root.grid_rowconfigure(0, weight=1)
+    root.grid_columnconfigure(0, weight=1)
 
     root.mainloop()
