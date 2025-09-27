@@ -143,7 +143,7 @@ class Order(Frame):
                     sPrime = 0
                 elif self.__dOrder['boxPrime'].get() == "興櫃":
                     sPrime = 1
-
+                # 盤中、盤後、零股、盤中零股
                 if self.__dOrder['boxPeriod'].get() == "盤中":
                     sPeriod = 0
                 elif self.__dOrder['boxPeriod'].get() == "盤後":
@@ -152,7 +152,7 @@ class Order(Frame):
                     sPeriod = 2
                 elif self.__dOrder['boxPeriod'].get() == "盤中零股":
                     sPeriod = 4
-
+                # 現股、融資、融券、無券
                 if self.__dOrder['boxFlag'].get() == "現股":
                     sFlag = 0
                 elif self.__dOrder['boxFlag'].get() == "融資":
@@ -161,24 +161,24 @@ class Order(Frame):
                     sFlag = 2
                 elif self.__dOrder['boxFlag'].get() == "無券":
                     sFlag = 3
-
+                # 買賣別
                 if self.__dOrder['boxBuySell'].get() == "買進":
                     sBuySell = 0
                 elif self.__dOrder['boxBuySell'].get() == "賣出":
                     sBuySell = 1
-
+                # ROD、IOC、FOK
                 if self.__dOrder['boxTradeType'].get() == "ROD":
                     nTradeType = 0
                 elif self.__dOrder['boxTradeType'].get() == "IOC":
                     nTradeType = 1
                 elif self.__dOrder['boxTradeType'].get() == "FOK":
                     nTradeType = 2
-
+                # 市價、限價
                 if self.__dOrder['boxSpecialTradeType'].get() == "市價":
                     nSpecialTradeType = 1
                 elif self.__dOrder['boxSpecialTradeType'].get() == "限價":
                     nSpecialTradeType = 2
-
+                # 同步/非同步
                 if self.__dOrder['boxAsync'].get() == "同步":
                     bAsyncOrder = 0
                 elif self.__dOrder['boxAsync'].get() == "非同步":
@@ -778,7 +778,7 @@ class GetBalanceQuery():
 #SKQuoteLibEventHandler = cc.GetEvents(skO, SKQuoteEvent)
 
 
-
+# 5.整合所有下單功能
 class StockOrder(Frame):
     def __init__(self, information=None):
         Frame.__init__(self)

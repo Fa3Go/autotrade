@@ -615,6 +615,7 @@ class CoverProduct():
         except Exception as e:
             messagebox.showerror("error！", e)
 
+# 選擇權下單總介面
 class OptionOrder(Frame):
     def __init__(self, information=None):
         Frame.__init__(self)

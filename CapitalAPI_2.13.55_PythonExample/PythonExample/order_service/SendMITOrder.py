@@ -2,7 +2,7 @@
 import os
 import Global
 # 第二種讓群益API元件可導入Python code內用的物件宣告
-import comtypes.client
+import comtypes.client as cc
 from os.path import dirname, abspath, split
 #comtypes.client.GetModule( dirname(dirname(abspath(__file__))) + r'\SKCOM.dll' )
 import comtypes.gen.SKCOMLib as sk
@@ -111,23 +111,23 @@ class MITFutureOrder(Frame):
         txtTrigger = Entry(frame, width = 10)
         txtTrigger.grid(column = 7, row = 1, padx = 10)
 
-        # 同步與否
-        lbReserved = Label(frame, style="Pink.TLabel", text = "同步與否")
-        lbReserved.grid(column = 8, row = 0)
-        # 輸入框
-        boxASYNC = Combobox(frame, width = 8, state='readonly')
-        boxASYNC['values'] = Config.ASYNC
-        boxASYNC.grid(column = 8, row = 1, padx = 10)
+        # # 同步與否
+        # lbReserved = Label(frame, style="Pink.TLabel", text = "同步與否")
+        # lbReserved.grid(column = 8, row = 0)
+        # # 輸入框
+        # boxASYNC = Combobox(frame, width = 8, state='readonly')
+        # boxASYNC['values'] = Config.ASYNC
+        # boxASYNC.grid(column = 8, row = 1, padx = 10)
 
         # btnSendOrder
-        btnSendOrder = Button(frame, style = "Pink.TButton", text = "送出委託")
+        btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
-        btnSendOrder.grid(column = 9, row =  1, padx = 10)
+        btnSendOrder.grid(column = 10, row =  0, padx = 10)
         
-        # btnAsyncSendOrder
-        btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
-        btnAsyncSendOrder["command"] = self.__btnSendOrderAsync_Click
-        btnAsyncSendOrder.grid(column = 10, row =  1, padx = 10)
+        # btnSendOrderAsync
+        btnSendOrderAsync = Button(frame, style = "Pink.TButton", text = "非同步委託")
+        btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
+        btnSendOrderAsync.grid(column = 10, row =  1, padx = 10)
 
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxBuySell'] = boxBuySell
@@ -137,7 +137,7 @@ class MITFutureOrder(Frame):
         self.__dOrder['txtQty'] = txtQty
         self.__dOrder['txtTrigger'] = txtTrigger
         self.__dOrder['boxFlag'] = boxFlag
-        self.__dOrder['boxASYNC'] = boxASYNC
+        # self.__dOrder['boxASYNC'] = boxASYNC
 
     # 4.下單送出
 
@@ -179,10 +179,10 @@ class MITFutureOrder(Frame):
                 elif self.__dOrder['boxFlag'].get() == "當沖":
                     sDayTrade = 1
 
-                if self.__dOrder['boxASYNC'].get() == "同步":
-                    bAsyncOrder = 0
-                elif self.__dOrder['boxASYNC'].get() == "非同步":
-                    bAsyncOrder = 1
+                # if self.__dOrder['boxASYNC'].get() == "同步":
+                #     bAsyncOrder = 0
+                # elif self.__dOrder['boxASYNC'].get() == "非同步":
+                #     bAsyncOrder = 1
 
                 # 建立下單用的參數(FUTUREORDER)物件(下單時要填商品代號,買賣別,委託價,數量等等的一個物件)
                 oOrder = sk.FUTUREORDER()
@@ -205,7 +205,7 @@ class MITFutureOrder(Frame):
                 # 觸發價
                 oOrder.bstrTrigger = self.__dOrder['txtTrigger'].get()
 
-                message,m_nCode = skO.SendFutureMITOrder(Global.Global_IID, bAsyncOrder, oOrder)
+                message,m_nCode = skO.SendFutureMITOrderV1(Global.Global_IID, bAsyncOrder, oOrder)
                 self.__oMsg.SendReturnMessage("Order",m_nCode, "SendFutureMITOrder", self.__dOrder['listInformation'])
                 if bAsyncOrder == False and m_nCode ==0:                    
                     strMsg = "期貨MIT委託: " + str(message)
@@ -293,23 +293,26 @@ class MITOptionOrder(Frame):
         txtTrigger = Entry(frame, width = 10)
         txtTrigger.grid(column = 7, row = 1, padx = 10)
 
-        # 同步與否
-        lbReserved = Label(frame, style="Pink.TLabel", text = "同步與否")
-        lbReserved.grid(column = 8, row = 0)
-        # 輸入框
-        boxASYNC = Combobox(frame, width = 8, state='readonly')
-        boxASYNC['values'] = Config.ASYNC
-        boxASYNC.grid(column = 8, row = 1, padx = 10)
+        # # 同步與否
+        # lbReserved = Label(frame, style="Pink.TLabel", text = "同步與否")
+        # lbReserved.grid(column = 8, row = 0)
+        # # 輸入框
+        # boxASYNC = Combobox(frame, width = 8, state='readonly')
+        # boxASYNC['values'] = Config.ASYNC
+        # boxASYNC.grid(column = 8, row = 1, padx = 10)
+
+        # Label分隔線
+        Label(frame, style="PinkFiller.TLabel", text = "_________").grid(column = 4, row = 0, padx = 8)
 
         # btnSendOrder
-        btnSendOrder = Button(frame, style = "Pink.TButton", text = "送出委託")
+        btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
-        btnSendOrder.grid(column = 9, row =  1, padx = 10)
+        btnSendOrder.grid(column = 10, row =  0, padx = 10)
 
-        # btnAsyncSendOrder
-        btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
-        btnAsyncSendOrder["command"] = self.__btnSendOrderAsync_Click
-        btnAsyncSendOrder.grid(column = 10, row =  1, padx = 10)
+        # btnSendOrderAsync
+        btnSendOrderAsync = Button(frame, style = "Pink.TButton", text = "非同步委託")
+        btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
+        btnSendOrderAsync.grid(column = 10, row =  1, padx = 10)
 
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxBuySell'] = boxBuySell
@@ -318,7 +321,8 @@ class MITOptionOrder(Frame):
         self.__dOrder['txtDealPrice'] = txtDealPrice
         self.__dOrder['txtQty'] = txtQty
         self.__dOrder['txtTrigger'] = txtTrigger
-        self.__dOrder['boxASYNC'] = boxASYNC
+        # self.__dOrder['boxASYNC'] = boxASYNC
+
 
     # 4.下單送出
     def __btnSendOrder_Click(self):
@@ -353,10 +357,10 @@ class MITOptionOrder(Frame):
                 elif self.__dOrder['boxNewClose'].get() == "自動":
                     sNewClose = 2
 
-                if self.__dOrder['boxASYNC'].get() == "同步":
-                    bAsyncOrder = 0
-                elif self.__dOrder['boxASYNC'].get() == "非同步":
-                    bAsyncOrder = 1
+                # if self.__dOrder['boxASYNC'].get() == "同步":
+                #     bAsyncOrder = 0
+                # elif self.__dOrder['boxASYNC'].get() == "非同步":
+                #     bAsyncOrder = 1
 
                 # 建立下單用的參數(FUTUREORDER)物件(下單時要填商品代號,買賣別,委託價,數量等等的一個物件)
                 oOrder = sk.FUTUREORDER()
@@ -473,6 +477,7 @@ class MITCancel(Frame):
             except Exception as e:
                 messagebox.showerror("error！", e)
 
+# MIT下單總介面
 class SendMITOrder(Frame):
     def __init__(self, information=None):
         Frame.__init__(self)

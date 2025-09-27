@@ -742,6 +742,7 @@ class TXOffset(Frame):
         except Exception as e:
             messagebox.showerror("error！", e)
 
+# 期貨委託總介面
 class FutureOrder(Frame):
 
     def __init__(self, information=None):

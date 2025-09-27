@@ -66,6 +66,7 @@ except Exception as e:
     Quote = None
     print(f"Quote模組載入過程中發生錯誤: {e}")
 
+# 宣告API物件
 skC = Global.skC
 skO = Global.skO
 skR = Global.skR

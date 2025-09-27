@@ -22,6 +22,7 @@ from tkinter import messagebox
 import Config
 import MessageControl
 
+
 # DoubleSell
 class DoubleSell(Frame):
     def __init__(self, master=None, information=None):
@@ -184,4 +185,17 @@ class DoubleSell(Frame):
 
         except Exception as e:
             messagebox.showerror("error！", e)
+
+# DoubleSell下單總介面
+class DSOrderService(Frame):
+
+    def __init__(self, information=None):
+        Frame.__init__(self)
+        self.__obj = dict(
+            doublesell = DoubleSell(master = self, information = information),
+        )
+
+    def SetAccount(self, account):
+        for _ in 'doublesell':
+            self.__obj[_].SetAccount(account)   
 
