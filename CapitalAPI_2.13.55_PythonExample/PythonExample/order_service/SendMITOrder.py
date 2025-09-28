@@ -8,10 +8,6 @@ from os.path import dirname, abspath, split
 import comtypes.gen.SKCOMLib as sk
 skC = Global.skC
 skO = Global.skO
-skR = Global.skR
-skQ = Global.skQ
-skOSQ = Global.skOSQ
-skOOQ = Global.skOOQ
 
 # 畫視窗用物件
 from tkinter import *
@@ -145,7 +141,7 @@ class MITFutureOrder(Frame):
         if self.__dOrder['boxAccount'] == '':
             messagebox.showerror("error！", '請選擇期貨帳號！')
         else:
-            self.__btnSendOrder_Click(False)
+            self.__SendOrder_Click(False)
 
     def __btnSendOrderAsync_Click(self):
         if self.__dOrder['boxAccount'] == '':
@@ -204,6 +200,8 @@ class MITFutureOrder(Frame):
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價
                 oOrder.bstrTrigger = self.__dOrder['txtTrigger'].get()
+                # 委託價格類型 (2=限價, 3=範圍市價)
+                oOrder.nOrderPriceType = 2
 
                 message,m_nCode = skO.SendFutureMITOrderV1(Global.Global_IID, bAsyncOrder, oOrder)
                 self.__oMsg.SendReturnMessage("Order",m_nCode, "SendFutureMITOrder", self.__dOrder['listInformation'])
@@ -382,6 +380,8 @@ class MITOptionOrder(Frame):
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價
                 oOrder.bstrTrigger = self.__dOrder['txtTrigger'].get()
+                # 委託價格類型 (2=限價, 3=範圍市價)
+                oOrder.nOrderPriceType = 2
 
                 message, m_nCode = skO.SendOptionMITOrder(Global.Global_IID, bAsyncOrder, oOrder)
                 self.__oMsg.SendReturnMessage("Order", m_nCode, "SendOptionMITOrder", self.__dOrder['listInformation'])
@@ -477,7 +477,6 @@ class MITCancel(Frame):
             except Exception as e:
                 messagebox.showerror("error！", e)
 
-# MIT下單總介面
 class SendMITOrder(Frame):
     def __init__(self, information=None):
         Frame.__init__(self)

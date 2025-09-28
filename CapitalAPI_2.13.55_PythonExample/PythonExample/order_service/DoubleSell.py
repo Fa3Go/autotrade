@@ -24,9 +24,9 @@ import MessageControl
 
 
 # DoubleSell
-class DoubleSell(Frame):
+class DuplexOrder(Frame):
     def __init__(self, master=None, information=None):
-        Frame.__init__(self, master)
+        Frame.__init__(self)
         self.__master = master
         self.__oMsg = MessageControl.MessageControl()
         # UI variable
@@ -40,24 +40,18 @@ class DoubleSell(Frame):
     def SetAccount(self, account):
         self.__dOrder['boxAccount'] = account
 
-        # 清空輸入框
     def __CreateWidget(self):
-        group = LabelFrame(self, text="DoubleSell", style="Pink.TLabelframe")
-        group.grid(column = 0, row = 0, padx = 5, pady = 5, columnspan = 3, sticky = 'w')
+        group = LabelFrame(self.__master, text="複式單委託", style="Pink.TLabelframe")
+        group.grid(column = 0, row = 1, padx = 5, pady = 5, columnspan = 2,sticky = "w")
 
-        # Frame
         frame = Frame(group, style="Pink.TFrame")
         frame.grid(column = 0, row = 0, padx = 5, pady = 5, sticky = 'w')
-
-        # 複式單GUI - 基於OptionOrder.py的DuplexOrder類
-
         # 商品代碼1
         Merchandise1 = Label(frame, style="Pink.TLabel", text = "商品代碼1")
         Merchandise1.grid(column = 0, row = 0, pady = 3)
             # 輸入框
         self.txtMerchandise1 = Entry(frame, width = 15)
         self.txtMerchandise1.grid(column = 0, row = 1, padx = 5)
-
         # 商品代碼2
         Merchandise2 = Label(frame, style="Pink.TLabel", text = "商品代碼2")
         Merchandise2.grid(column = 0, row = 2, pady = 3)
@@ -72,7 +66,6 @@ class DoubleSell(Frame):
         self.boxBuyOrSell1 = Combobox(frame, width = 10, state='readonly')
         self.boxBuyOrSell1['values'] = Config.BUYSELLSET
         self.boxBuyOrSell1.grid(column = 1, row = 1, padx = 5)
-
         # 買賣別2
         BuyOrSell2 = Label(frame, style="Pink.TLabel", text = "買賣別2")
         BuyOrSell2.grid(column = 1, row = 2)
@@ -111,17 +104,15 @@ class DoubleSell(Frame):
         self.txtQty = Entry(frame, width = 10)
         self.txtQty.grid(column = 5, row = 2, padx = 5)
 
-        # btnSendOrder - 同步委託
+        # btnSendOrder
         btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
         btnSendOrder.grid(column = 6, row =  1, padx = 5)
-
-        # btnSendOrderAsync - 非同步委託
+        # btnSendOrderAsync
         btnSendOrderAsync = Button(frame, style = "Pink.TButton", text = "非同步委託")
         btnSendOrderAsync["command"] = self.__btnSendOrderAsync_Click
         btnSendOrderAsync.grid(column = 6, row =  2, padx = 5)
 
-        
     def __btnSendOrder_Click(self):
         if self.__dOrder['boxAccount'] == '':
             messagebox.showerror("error！", '請選擇期貨帳號！')
@@ -187,15 +178,15 @@ class DoubleSell(Frame):
             messagebox.showerror("error！", e)
 
 # DoubleSell下單總介面
-class DSOrderService(Frame):
+class DoubleSell(Frame):
 
     def __init__(self, information=None):
         Frame.__init__(self)
         self.__obj = dict(
-            doublesell = DoubleSell(master = self, information = information),
+            duplexorder = DuplexOrder(master = self, information = information),
         )
 
     def SetAccount(self, account):
-        for _ in 'doublesell':
+        for _ in 'duplexorder':
             self.__obj[_].SetAccount(account)   
 
