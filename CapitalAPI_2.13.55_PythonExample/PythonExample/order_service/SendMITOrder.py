@@ -195,7 +195,7 @@ class MITFutureOrder(Frame):
                 # 非當沖、當沖
                 oOrder.sDayTrade = sDayTrade
                 # 委託價(MIT)
-                oOrder.bstrPrice = self.__dOrder['txtDealPrice'].get()
+                oOrder.bstrDealPrice = self.__dOrder['txtDealPrice'].get()
                 # 委託數量
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價
@@ -375,7 +375,7 @@ class MITOptionOrder(Frame):
                 # 非當沖、當沖 (選擇權MIT新增)
                 oOrder.sDayTrade = 0
                 # 委託價(MIT)
-                oOrder.bstrPrice = self.__dOrder['txtDealPrice'].get()
+                oOrder.bstrDealPrice = self.__dOrder['txtDealPrice'].get()
                 # 委託數量
                 oOrder.nQty = int(self.__dOrder['txtQty'].get())
                 # 觸發價

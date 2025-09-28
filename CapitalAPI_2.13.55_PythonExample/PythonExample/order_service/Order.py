@@ -290,6 +290,7 @@ class __FrameOrder(Frame):
             self.__obj['stop_loss'].SetAccount(self.boxFutureAccount.get())
             #self.__obj['withdraw'].SetAccount(self.boxFutureAccount.get())
             self.__obj['mit'].SetAccount(self.boxFutureAccount.get())
+            self.__obj['double_sell'].SetAccount(self.boxFutureAccount.get())
 
         # 期貨
         lbFutureAccount = Label(frame, style="Pink.TLabel", text = "期貨帳號")
