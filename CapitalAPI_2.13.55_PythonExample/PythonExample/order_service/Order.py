@@ -279,7 +279,7 @@ class __FrameOrder(Frame):
         # 證券
         lbStockAccount = Label(frame, style="Pink.TLabel", text = "證券帳號")
         lbStockAccount.grid(column = 0, row = 2, pady = 5)
-            # 輸入框
+        # 輸入框
         self.boxStockAccount = Combobox(frame, state='readonly',width = 25)
         self.boxStockAccount.grid(column = 0, row = 3, padx = 10)
         self.boxStockAccount.bind("<<ComboboxSelected>>", __StockCallBack)
@@ -673,6 +673,7 @@ SKCenterLibEventHandler = comtypes.client.GetEvents(skC,SKCenterEvent)
 # SKOrderLibEventHandler = win32com.client.WithEvents(SKOrderLib, SKOrderLibEvent)
 
 if __name__ == '__main__':
+    # 主視窗
     root = Tk()
     root.title("PythonExampleOrder")
     root.geometry("1300x900")
@@ -736,6 +737,9 @@ if __name__ == '__main__':
     # 布局Canvas和Scrollbar
     main_canvas.grid(row=0, column=0, sticky="nsew")
     scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # 將Scrollbar提升到最上層
+    scrollbar.lift()
 
     # 配置行和列的權重
     root.grid_rowconfigure(0, weight=1)
