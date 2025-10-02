@@ -22,6 +22,38 @@ from tkinter import messagebox
 import Config
 import MessageControl
 
+# 全局變數：用於報價回調與自動賣出功能的通訊
+_auto_sell_monitor = None
+
+# 報價回調事件處理
+class AutoSellQuoteEvent:
+    def __init__(self):
+        self.stock_prices = {}  # 儲存商品代碼對應的最新價格
+
+    def OnNotifyQuoteLONG(self, sMarketNo, nStockidx):
+        """報價更新回調"""
+        try:
+            # 獲取報價資料
+            pSKStock = sk.SKSTOCKLONG()
+            nCode = skQ.SKQuoteLib_GetStockByIndexLONG(sMarketNo, nStockidx, pSKStock)
+
+            if nCode == 0:
+                stock_no = pSKStock.bstrStockNo
+                # 取得成交價
+                current_price = pSKStock.nClose / 100.0  # 價格需除以100
+
+                # 儲存最新價格
+                self.stock_prices[stock_no] = current_price
+
+                # 如果有啟動自動賣出監控，檢查價格
+                global _auto_sell_monitor
+                if _auto_sell_monitor:
+                    _auto_sell_monitor.check_price(stock_no, current_price)
+        except Exception as e:
+            pass
+
+# 建立報價事件實例
+quote_event = AutoSellQuoteEvent()
 
 # DoubleSell
 class Order(Frame):
@@ -37,9 +69,11 @@ class Order(Frame):
 
         self.__CreateWidget()
 
+    # 設定帳號
     def SetAccount(self, account):
         self.__dOrder['boxAccount'] = account
 
+    # 建立元件
     def __CreateWidget(self):
         # 選擇權委託
         group = LabelFrame(self.__master, text="選擇權委託", style="Pink.TLabelframe")
@@ -330,11 +364,25 @@ class Future(Frame):
             boxAccount = ''
         )
 
+        # 自動賣出監控變數
+        self.__auto_sell_active = False
+        self.__bought_stockNo = None
+        self.__auto_sell_price = None
+        self.__bought_qty = 0
+
+        # 循環交易變數
+        self.__loop_trading = False
+        self.__buy_price = None
+        self.__trade_qty = 0
+        self.__current_state = None  # 'bought' 或 'sold'
+
         self.__CreateWidget()
 
+    # 設定帳號
     def SetAccount(self, account):
         self.__dOrder['boxAccount'] = account
 
+    # 建立元件
     def __CreateWidget(self):
         group = LabelFrame(self.__master, text="期貨委託", style="Pink.TLabelframe")
         group.grid(column = 0, row = 1, padx = 5, pady = 5, columnspan = 2, sticky = 'w')
@@ -387,25 +435,40 @@ class Future(Frame):
         boxReserved['values'] = Config.RESERVEDSET
         boxReserved.grid(column = 7, row = 1, padx = 5)
 
+        # 自動賣出價格
+        Label(frame, style="Pink.TLabel", text = "自動賣出價格").grid(column = 8, row = 0, pady = 3)
+        txtAutoSellPrice = Entry(frame, width = 12)
+        txtAutoSellPrice.grid(column = 8, row = 1, padx = 5)
+
+        # 循環交易選項
+        self.__loop_var = IntVar(value=0)
+        chkLoopTrading = Checkbutton(frame, style="Pink.TCheckbutton", text='循環交易', variable=self.__loop_var, onvalue=1, offvalue=0)
+        chkLoopTrading.grid(column = 8, row = 2, padx = 5)
+
+        # 停止監控按鈕
+        btnStopMonitor = Button(frame, style = "Pink.TButton", text = "停止交易")
+        btnStopMonitor["command"] = self.__btnStopMonitor_Click
+        btnStopMonitor.grid(column = 8, row = 3, padx = 5, pady = 3)
+
         # btnSendOrder
         btnSendOrder = Button(frame, style = "Pink.TButton", text = "同步委託")
         btnSendOrder["command"] = self.__btnSendOrder_Click
-        btnSendOrder.grid(column = 8, row = 0, padx = 5)
+        btnSendOrder.grid(column = 9, row = 0, padx = 5)
 
         # btnAsyncSendOrder
         btnAsyncSendOrder = Button(frame, style = "Pink.TButton", text = "非同步委託")
         btnAsyncSendOrder["command"] = self.__btnAsyncSendOrder_Click
-        btnAsyncSendOrder.grid(column = 8, row = 1, padx = 5)
+        btnAsyncSendOrder.grid(column = 9, row = 1, padx = 5)
 
         # btnSendOrderCLR
         btnSendOrderCLR = Button(frame, style = "Pink.TButton", text = "同步委託(含倉別/盤別)")
         btnSendOrderCLR["command"] = self.__btnSendOrderCLR_Click
-        btnSendOrderCLR.grid(column = 9, row = 0, padx = 5)
+        btnSendOrderCLR.grid(column = 10, row = 0, padx = 5)
 
         # btnAsyncSendOrderCLR
         btnAsyncSendOrderCLR = Button(frame, style = "Pink.TButton", text = "非同步委託(含倉別/盤別)")
         btnAsyncSendOrderCLR["command"] = self.__btnAsyncSendOrderCLR_Click
-        btnAsyncSendOrderCLR.grid(column = 9, row = 1, padx = 5)
+        btnAsyncSendOrderCLR.grid(column = 10, row = 1, padx = 5)
 
         self.__dOrder['txtStockNo'] = txtStockNo
         self.__dOrder['boxPeriod'] = boxPeriod
@@ -415,6 +478,17 @@ class Future(Frame):
         self.__dOrder['txtQty'] = txtQty
         self.__dOrder['boxNewClose'] = boxNewClose
         self.__dOrder['boxReserved'] = boxReserved
+        self.__dOrder['txtAutoSellPrice'] = txtAutoSellPrice
+
+    # 停止監控按鈕
+    def __btnStopMonitor_Click(self):
+        if self.__auto_sell_active or self.__loop_trading:
+            self.__auto_sell_active = False
+            self.__loop_trading = False
+            self.__stop_monitoring()
+            messagebox.showinfo("提示", "已停止所有自動交易")
+        else:
+            messagebox.showinfo("提示", "目前沒有啟動交易")
 
     # 4.下單送出
     # sBuySell, sTradeType, sDayTrade, sNewClose, sReserved
@@ -430,6 +504,7 @@ class Future(Frame):
         else:
             self.__SendOrder_Click(True)
 
+    # 送出期貨委託
     def __SendOrder_Click(self, bAsyncOrder):
         try:
             if self.__dOrder['boxBuySell'].get() == "買進":
@@ -465,12 +540,32 @@ class Future(Frame):
             oOrder.bstrPrice = self.__dOrder['txtPrice'].get()
             # 委託數量
             oOrder.nQty = int(self.__dOrder['txtQty'].get())
-
+            # 新倉、平倉、自動
             message, m_nCode = skO.SendFutureOrder(Global.Global_IID, bAsyncOrder, oOrder)
             self.__oMsg.SendReturnMessage("Order", m_nCode, "SendFutureOrder", self.__dOrder['listInformation'])
             if bAsyncOrder == False and m_nCode == 0:
                 strMsg = "期貨委託: " + str(message)
                 self.__oMsg.WriteMessage( strMsg, self.__dOrder['listInformation'])
+
+                # 如果是買進且設定了自動賣出價格，啟動監控
+                if sBuySell == 0 and self.__dOrder['txtAutoSellPrice'].get().strip():
+                    self.__bought_stockNo = self.__dOrder['txtStockNo'].get()
+                    self.__auto_sell_price = float(self.__dOrder['txtAutoSellPrice'].get())
+                    self.__bought_qty = int(self.__dOrder['txtQty'].get())
+                    self.__buy_price = float(self.__dOrder['txtPrice'].get())
+                    self.__trade_qty = self.__bought_qty
+                    self.__auto_sell_active = True
+                    self.__current_state = 'bought'
+
+                    # 檢查是否啟用循環交易
+                    if self.__loop_var.get() == 1:
+                        self.__loop_trading = True
+                        strMsg = f"已啟動循環交易模式"
+                        self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+
+                    self.__start_price_monitoring()
+                    strMsg = f"已啟動自動賣出監控: {self.__bought_stockNo}, 買進價: {self.__buy_price}, 目標價格: {self.__auto_sell_price}"
+                    self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
         except Exception as e:
             messagebox.showerror("error！", e)
 
@@ -537,7 +632,7 @@ class Future(Frame):
             oOrder.sNewClose = sNewClose
             # 盤中、T盤預約
             oOrder.sReserved = sReserved
-
+            # 送出期貨委託(含倉別/盤別)
             message, m_nCode = skO.SendFutureOrderCLR(Global.Global_IID, bAsyncOrder, oOrder)
             self.__oMsg.SendReturnMessage("Order", m_nCode, "SendFutureOrderCLR", self.__dOrder['listInformation'])
             if bAsyncOrder == False and m_nCode == 0:
@@ -546,6 +641,156 @@ class Future(Frame):
 
         except Exception as e:
             messagebox.showerror("error！", e)
+
+    # 啟動價格監控
+    def __start_price_monitoring(self):
+        global _auto_sell_monitor
+        _auto_sell_monitor = self
+
+        try:
+            # 註冊報價回調（如果尚未註冊）
+            if not hasattr(skQ, '_quote_event_registered'):
+                comtypes.client.GetEvents(skQ, quote_event)
+                skQ._quote_event_registered = True
+
+            # 請求訂閱報價
+            nCode = skQ.SKQuoteLib_RequestStocks(
+                Global.Global_IID,
+                2,  # 期貨
+                self.__bought_stockNo
+            )
+
+            if nCode == 0:
+                strMsg = f"已訂閱 {self.__bought_stockNo} 報價，開始監控"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+            else:
+                strMsg = f"訂閱報價失敗: {skC.SKCenterLib_GetReturnCodeMessage(nCode)}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                self.__auto_sell_active = False
+        except Exception as e:
+            strMsg = f"啟動價格監控錯誤: {e}"
+            self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+            self.__auto_sell_active = False
+
+    # 檢查價格並觸發自動交易
+    def check_price(self, stock_no, current_price):
+        """由報價回調呼叫，檢查是否達到交易條件"""
+        if not self.__auto_sell_active and not self.__loop_trading:
+            return
+
+        if stock_no != self.__bought_stockNo:
+            return
+
+        # 如果目前是持倉狀態（已買進），檢查是否達到賣出價格
+        if self.__current_state == 'bought':
+            if current_price >= self.__auto_sell_price:
+                strMsg = f"價格達到賣出目標! 當前價: {current_price}, 目標價: {self.__auto_sell_price}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                # 執行自動賣出
+                self.__execute_auto_sell()
+
+        # 如果是循環模式且已賣出，檢查是否達到買進價格
+        elif self.__current_state == 'sold' and self.__loop_trading:
+            if current_price <= self.__buy_price:
+                strMsg = f"價格回落至買進價! 當前價: {current_price}, 買進價: {self.__buy_price}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                # 執行自動買進
+                self.__execute_auto_buy()
+
+    # 執行自動賣出
+    def __execute_auto_sell(self):
+        try:
+            # 暫停賣出監控（避免重複觸發）
+            temp_active = self.__auto_sell_active
+            self.__auto_sell_active = False
+
+            # 建立賣出委託
+            oOrder = sk.FUTUREORDER()
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+            oOrder.bstrStockNo = self.__bought_stockNo
+            oOrder.sBuySell = 1  # 賣出
+            oOrder.sTradeType = 0  # ROD
+            oOrder.sDayTrade = 0  # 非當沖
+            oOrder.bstrPrice = str(self.__auto_sell_price)
+            oOrder.nQty = self.__bought_qty
+
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, False, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"自動賣出成功: {self.__bought_stockNo}, 價格: {self.__auto_sell_price}, 數量: {self.__bought_qty}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+
+                # 如果是循環模式，切換到已賣出狀態，繼續監控買進時機
+                if self.__loop_trading:
+                    self.__current_state = 'sold'
+                    strMsg = f"循環交易: 等待價格回落至 {self.__buy_price} 再買進"
+                    self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                else:
+                    # 非循環模式，停止監控
+                    self.__stop_monitoring()
+            else:
+                strMsg = f"自動賣出失敗: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+                # 恢復監控狀態
+                self.__auto_sell_active = temp_active
+        except Exception as e:
+            messagebox.showerror("error！", f"自動賣出錯誤: {e}")
+            self.__auto_sell_active = False
+
+    # 執行自動買進（循環交易用）
+    def __execute_auto_buy(self):
+        try:
+            # 建立買進委託
+            oOrder = sk.FUTUREORDER()
+            oOrder.bstrFullAccount = self.__dOrder['boxAccount']
+            oOrder.bstrStockNo = self.__bought_stockNo
+            oOrder.sBuySell = 0  # 買進
+            oOrder.sTradeType = 0  # ROD
+            oOrder.sDayTrade = 0  # 非當沖
+            oOrder.bstrPrice = str(self.__buy_price)
+            oOrder.nQty = self.__trade_qty
+
+            message, m_nCode = skO.SendFutureOrder(Global.Global_IID, False, oOrder)
+
+            if m_nCode == 0:
+                strMsg = f"自動買進成功: {self.__bought_stockNo}, 價格: {self.__buy_price}, 數量: {self.__trade_qty}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+
+                # 切換回已買進狀態，等待賣出時機
+                self.__current_state = 'bought'
+                self.__auto_sell_active = True
+                self.__bought_qty = self.__trade_qty
+                strMsg = f"循環交易: 等待價格上漲至 {self.__auto_sell_price} 再賣出"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+            else:
+                strMsg = f"自動買進失敗: {message}"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+        except Exception as e:
+            messagebox.showerror("error！", f"自動買進錯誤: {e}")
+
+    # 停止監控
+    def __stop_monitoring(self):
+        """停止價格監控並取消訂閱"""
+        try:
+            if self.__bought_stockNo:
+                # 取消訂閱報價
+                nCode = skQ.SKQuoteLib_RequestStocks(
+                    Global.Global_IID,
+                    -2,  # 負數表示取消訂閱期貨
+                    self.__bought_stockNo
+                )
+                strMsg = f"已取消 {self.__bought_stockNo} 報價訂閱"
+                self.__oMsg.WriteMessage(strMsg, self.__dOrder['listInformation'])
+
+            # 重置所有狀態
+            self.__loop_trading = False
+            self.__current_state = None
+
+            global _auto_sell_monitor
+            if _auto_sell_monitor == self:
+                _auto_sell_monitor = None
+        except Exception as e:
+            pass
 
 # DoubleSell下單總介面
 class DoubleSell(Frame):
