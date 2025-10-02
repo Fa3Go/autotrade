@@ -25,7 +25,7 @@ from tkinter import messagebox
 import Config
 import MessageControl
 #----------------------------------------------------------------------------------------------------------------------------------------------------
-# 委託
+# 期貨委託
 class Order(Frame):
     def __init__(self, master=None, information=None):
         Frame.__init__(self)
